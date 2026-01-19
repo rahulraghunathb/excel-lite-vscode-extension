@@ -46,11 +46,18 @@ export function getHtmlShell(): string {
         th:first-child, td:first-child { position: sticky; left: 0; z-index: 15; background: var(--bg-secondary); text-align: center; min-width: 50px; width: 50px; border-right: 2px solid var(--border-color); }
         thead th:first-child { z-index: 30; }
         th.corner { background: var(--bg-secondary); }
-        th.col-letter { text-align: center; font-weight: 600; cursor: pointer; }
+        th.col-letter { text-align: center; font-weight: 600; cursor: pointer; position: relative; }
+        th.header-cell { position: relative; }
+        td.row-header { position: sticky; left: 0; background: var(--bg-secondary); }
         td { border: 1px solid var(--border-color); padding: 6px 12px; white-space: normal; word-break: break-word; overflow: hidden; cursor: cell; vertical-align: top; }
         td.selected { background: var(--selection) !important; outline: 1px solid var(--accent); }
         th.col-selected, td.row-selected { background: color-mix(in srgb, var(--selection) 70%, transparent); }
         .status-bar { padding: 4px 12px; background: var(--bg-secondary); border-top: 1px solid var(--border-color); font-size: 11px; display: flex; justify-content: space-between; align-items: center; height: 24px;}
+        .sheet-tabs { display: flex; gap: 6px; padding: 4px 8px; background: var(--bg-secondary); border-top: 1px solid var(--border-color); overflow-x: auto; }
+        .sheet-tab { padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; background: var(--bg-header); border: 1px solid var(--border-color); white-space: nowrap; }
+        .sheet-tab.active { background: #1a7f37; color: white; border-color: #1a7f37; }
+        .col-resizer { position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: col-resize; }
+        .row-resizer { position: absolute; bottom: 0; left: 0; height: 6px; width: 100%; cursor: row-resize; }
         .filter-popup { display: none; position: absolute; background: var(--bg-primary); border: 1px solid var(--border-color); padding: 10px; z-index: 100; box-shadow: 0 8px 18px rgba(0,0,0,0.4); width: 240px; border-radius: 6px; }
         .filter-section { padding: 6px 0; border-bottom: 1px solid var(--border-color); }
         .filter-section:last-child { border-bottom: none; }
@@ -128,6 +135,8 @@ export function getHtmlShell(): string {
         </div>
     </div>
 
+    <div class="sheet-tabs" id="sheetTabs"></div>
+
     <script>
         const vscode = acquireVsCodeApi();
         let currentRows = [];
@@ -137,12 +146,18 @@ export function getHtmlShell(): string {
         let ranges = [];
         let activeRangeIndex = -1;
         let eventsBound = false;
+        let columnWidths = [];
+        let rowHeights = [];
+        let resizing = null;
+        let resizeStart = 0;
+        let resizeSize = 0;
         
         const grid = document.getElementById('grid');
         const gridBody = document.getElementById('gridBody');
         const headRow = document.getElementById('headRow');
         const colLetters = document.getElementById('colLetters');
         const loading = document.getElementById('loading');
+        const sheetTabs = document.getElementById('sheetTabs');
         const themeToggle = document.getElementById('themeToggle');
         const state = vscode.getState() || {};
         const initialTheme = state.theme || 'dark';
@@ -168,11 +183,12 @@ export function getHtmlShell(): string {
             numCols = data.headers.length;
             document.getElementById('sheetName').innerText = data.sheetName;
             document.getElementById('autoSaveToggle').checked = data.isAutoSaveEnabled;
+            renderSheetTabs(data);
 
             // Render Column Letters
             let lettersHtml = '<th class="corner"></th>';
             for (let i = 0; i < numCols; i++) {
-                lettersHtml += '<th class="col-letter" data-col="' + i + '">' + getColumnLetter(i) + '</th>';
+                lettersHtml += '<th class="col-letter" data-col="' + i + '">' + getColumnLetter(i) + '<div class="col-resizer" data-col="' + i + '"></div></th>';
             }
             colLetters.innerHTML = lettersHtml;
 
@@ -219,22 +235,37 @@ export function getHtmlShell(): string {
             let bHtml = '';
             data.rows.forEach((row, dIdx) => {
                 const oIdx = data.originalIndices[dIdx];
-                bHtml += '<tr><td class="row-header" data-row-idx="' + dIdx + '">' + (oIdx + 1) + '</td>';
+                bHtml += '<tr style="height:' + (rowHeights[dIdx] || 24) + 'px"><td class="row-header" data-row-idx="' + dIdx + '">' + (oIdx + 1) + '<div class="row-resizer" data-row="' + dIdx + '"></div></td>';
                 row.forEach((cell, cIdx) => {
                     const style = data.styles[oIdx + ',' + cIdx] || {};
                     const styleAttr = (style.bold ? 'font-weight:bold;' : '') + (style.bgColor ? 'background-color:' + style.bgColor : '');
-                    bHtml += '<td data-row="' + dIdx + '" data-col="' + cIdx + '" style="' + styleAttr + '">' + escapeHtml(String(cell ?? '')) + '</td>';
+                    const widthStyle = columnWidths[cIdx] ? 'width:' + columnWidths[cIdx] + 'px;' : '';
+                    bHtml += '<td data-row="' + dIdx + '" data-col="' + cIdx + '" style="' + styleAttr + widthStyle + '">' + escapeHtml(String(cell ?? '')) + '</td>';
                 });
                 bHtml += '</tr>';
             });
             gridBody.innerHTML = bHtml;
             attachEvents();
+            applyColumnWidths();
         }
 
         function escapeHtml(text) {
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        function renderSheetTabs(data) {
+            if (!data.sheets || data.sheets.length === 0) {
+                sheetTabs.innerHTML = '';
+                return;
+            }
+            sheetTabs.innerHTML = data.sheets
+                .map((sheet) => {
+                    const active = sheet.index === data.sheetIndex ? ' active' : '';
+                    return '<button class="sheet-tab' + active + '" data-index="' + sheet.index + '">' + escapeHtml(sheet.name) + '</button>';
+                })
+                .join('');
         }
 
         function getColumnLetter(index) {
@@ -331,7 +362,6 @@ export function getHtmlShell(): string {
                         if (btn.classList.contains('select-all')) return;
                     }
                     p.querySelectorAll('.filter-values input[type="checkbox"]').forEach(cb => cb.checked = false);
-                    vscode.postMessage({ type: 'filter', payload: { column: parseInt(p.dataset.col), operator: 'clear' }});
                 };
             });
 
@@ -360,12 +390,74 @@ export function getHtmlShell(): string {
                 };
             });
 
+            document.querySelectorAll('.sheet-tab').forEach(tab => {
+                tab.onclick = () => vscode.postMessage({ type: 'switchSheet', payload: { index: parseInt(tab.dataset.index) } });
+                tab.ondblclick = () => vscode.postMessage({ type: 'renameSheet', payload: { index: parseInt(tab.dataset.index) } });
+            });
+
+            document.querySelectorAll('.col-resizer').forEach(handle => {
+                handle.onmousedown = (e) => {
+                    e.stopPropagation();
+                    const col = parseInt(handle.dataset.col);
+                    resizing = { type: 'col', index: col };
+                    resizeStart = e.clientX;
+                    const th = handle.parentElement;
+                    resizeSize = th.getBoundingClientRect().width;
+                };
+            });
+
+            document.querySelectorAll('.row-resizer').forEach(handle => {
+                handle.onmousedown = (e) => {
+                    e.stopPropagation();
+                    const row = parseInt(handle.dataset.row);
+                    resizing = { type: 'row', index: row };
+                    resizeStart = e.clientY;
+                    const tr = handle.closest('tr');
+                    resizeSize = tr.getBoundingClientRect().height;
+                };
+            });
+
             if (!eventsBound) {
                 document.addEventListener('click', () => {
                     document.querySelectorAll('.filter-popup').forEach(item => item.classList.remove('show'));
                 });
+                document.addEventListener('mousemove', (e) => {
+                    if (!resizing) return;
+                    if (resizing.type === 'col') {
+                        const next = Math.max(50, resizeSize + (e.clientX - resizeStart));
+                        columnWidths[resizing.index] = next;
+                        applyColumnWidths();
+                    } else {
+                        const next = Math.max(18, resizeSize + (e.clientY - resizeStart));
+                        rowHeights[resizing.index] = next;
+                        applyRowHeights();
+                    }
+                });
+                document.addEventListener('mouseup', () => {
+                    resizing = null;
+                });
                 eventsBound = true;
             }
+        }
+
+        function applyColumnWidths() {
+            document.querySelectorAll('th.col-letter, th.header-cell').forEach(th => {
+                const c = parseInt(th.dataset.col);
+                if (columnWidths[c]) th.style.width = columnWidths[c] + 'px';
+            });
+            document.querySelectorAll('td[data-col]').forEach(td => {
+                const c = parseInt(td.dataset.col);
+                if (columnWidths[c]) td.style.width = columnWidths[c] + 'px';
+            });
+        }
+
+        function applyRowHeights() {
+            document.querySelectorAll('tbody tr').forEach(tr => {
+                const rowHeader = tr.querySelector('.row-header');
+                if (!rowHeader) return;
+                const r = parseInt(rowHeader.dataset.rowIdx);
+                if (rowHeights[r]) tr.style.height = rowHeights[r] + 'px';
+            });
         }
 
         function populateFilterValues(popup) {
@@ -400,6 +492,7 @@ export function getHtmlShell(): string {
 
         grid.onmousedown = e => {
             const td = e.target.closest('td[data-row]');
+            if (e.target.closest('.col-resizer') || e.target.closest('.row-resizer')) return;
             const th = e.target.closest('th[data-col]');
             const rh = e.target.closest('.row-header');
             
@@ -429,6 +522,7 @@ export function getHtmlShell(): string {
                 updateSelectionUI();
                 postSelection();
             } else if (th) {
+                if (!th.classList.contains('col-letter')) return;
                 if (e.target.classList.contains('filter-icon')) return;
                 const c = parseInt(th.dataset.col);
                 isS = false;
@@ -538,6 +632,10 @@ export function getHtmlShell(): string {
                 if (e.key === 'c') vscode.postMessage({ type: 'clipboard', payload: { action: 'copy' } });
                 else if (e.key === 'x') vscode.postMessage({ type: 'clipboard', payload: { action: 'cut' } });
                 else if (e.key === 'v') vscode.postMessage({ type: 'clipboard', payload: { action: 'paste' } });
+                else if (e.key === 'z') {
+                    e.preventDefault();
+                    vscode.postMessage({ type: 'undo' });
+                }
             }
         };
 

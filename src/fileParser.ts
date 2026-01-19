@@ -12,6 +12,13 @@ export interface CellStyle {
   fontColor?: string
 }
 
+export interface SheetModel {
+  name: string
+  headers: string[]
+  rows: any[][]
+  styles: Map<string, CellStyle>
+}
+
 /**
  * Unified table model for both Excel and CSV files
  */
@@ -20,6 +27,8 @@ export interface TableModel {
   rows: any[][]
   styles: Map<string, CellStyle> // Key: "row,col"
   sheetName: string
+  sheetIndex: number
+  sheets: SheetModel[]
   filePath: string
 }
 
@@ -43,87 +52,98 @@ export async function parseExcel(filePath: string): Promise<TableModel> {
   const workbook = new ExcelJS.Workbook()
   await workbook.xlsx.readFile(filePath)
 
-  const worksheet = workbook.worksheets[0]
-  if (!worksheet) {
+  const sheets: SheetModel[] = []
+
+  workbook.worksheets.forEach((worksheet) => {
+    const headers: string[] = []
+    const rows: any[][] = []
+    const styles = new Map<string, CellStyle>()
+
+    let maxCol = 0
+
+    // First pass: determine dimensions and get headers
+    worksheet.eachRow({ includeEmpty: false }, (row) => {
+      if (row.cellCount > maxCol) {
+        maxCol = row.cellCount
+      }
+    })
+
+    // Get headers from first row
+    const headerRow = worksheet.getRow(1)
+    for (let col = 1; col <= maxCol; col++) {
+      const cell = headerRow.getCell(col)
+      const value = cell.value
+      headers.push(
+        value !== null && value !== undefined
+          ? String(value)
+          : getColumnLetter(col - 1),
+      )
+    }
+
+    // Get data rows and styles
+    worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+      if (rowNumber === 1) return // Skip header row
+
+      const rowData: any[] = []
+      for (let col = 1; col <= maxCol; col++) {
+        const cell = row.getCell(col)
+        let value = cell.value
+
+        // Handle rich text
+        if (value && typeof value === "object" && "richText" in value) {
+          value = (value as ExcelJS.CellRichTextValue).richText
+            .map((rt) => rt.text)
+            .join("")
+        }
+
+        // Handle formula results
+        if (value && typeof value === "object" && "result" in value) {
+          value = (value as ExcelJS.CellFormulaValue).result
+        }
+
+        rowData.push(value !== null && value !== undefined ? value : "")
+
+        // Extract styles
+        const cellStyle: CellStyle = {}
+        const font = cell.font
+        const fill = cell.fill
+
+        if (font?.bold) {
+          cellStyle.bold = true
+        }
+
+        if (fill && fill.type === "pattern" && fill.fgColor?.argb) {
+          cellStyle.bgColor = "#" + fill.fgColor.argb.substring(2) // Remove alpha
+        }
+
+        if (Object.keys(cellStyle).length > 0) {
+          styles.set(`${rowNumber - 2},${col - 1}`, cellStyle)
+        }
+      }
+      rows.push(rowData)
+    })
+
+    sheets.push({ name: worksheet.name, headers, rows, styles })
+  })
+
+  if (sheets.length === 0) {
     throw new Error("No worksheets found in the Excel file")
   }
 
-  const headers: string[] = []
-  const rows: any[][] = []
-  const styles = new Map<string, CellStyle>()
-
-  let maxCol = 0
-
-  // First pass: determine dimensions and get headers
-  worksheet.eachRow({ includeEmpty: false }, (row, _rowNumber) => {
-    if (row.cellCount > maxCol) {
-      maxCol = row.cellCount
-    }
-  })
-
-  // Get headers from first row
-  const headerRow = worksheet.getRow(1)
-  for (let col = 1; col <= maxCol; col++) {
-    const cell = headerRow.getCell(col)
-    const value = cell.value
-    headers.push(
-      value !== null && value !== undefined
-        ? String(value)
-        : getColumnLetter(col - 1)
-    )
-  }
-
-  // Get data rows and styles
-  worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-    if (rowNumber === 1) return // Skip header row
-
-    const rowData: any[] = []
-    for (let col = 1; col <= maxCol; col++) {
-      const cell = row.getCell(col)
-      let value = cell.value
-
-      // Handle rich text
-      if (value && typeof value === "object" && "richText" in value) {
-        value = (value as ExcelJS.CellRichTextValue).richText
-          .map((rt) => rt.text)
-          .join("")
-      }
-
-      // Handle formula results
-      if (value && typeof value === "object" && "result" in value) {
-        value = (value as ExcelJS.CellFormulaValue).result
-      }
-
-      rowData.push(value !== null && value !== undefined ? value : "")
-
-      // Extract styles
-      const cellStyle: CellStyle = {}
-      const font = cell.font
-      const fill = cell.fill
-
-      if (font?.bold) {
-        cellStyle.bold = true
-      }
-
-      if (fill && fill.type === "pattern" && fill.fgColor?.argb) {
-        cellStyle.bgColor = "#" + fill.fgColor.argb.substring(2) // Remove alpha
-      }
-
-      if (Object.keys(cellStyle).length > 0) {
-        styles.set(`${rowNumber - 2},${col - 1}`, cellStyle)
-      }
-    }
-    rows.push(rowData)
-  })
+  const active = sheets[0]
 
   console.log(`[Excel Lite] Parsed Excel file: ${path.basename(filePath)}`)
-  console.log(`[Excel Lite] Headers: ${headers.length}, Rows: ${rows.length}`)
+  console.log(
+    `[Excel Lite] Headers: ${active.headers.length}, Rows: ${active.rows.length}`,
+  )
 
   return {
-    headers,
-    rows,
-    styles,
-    sheetName: worksheet.name,
+    headers: active.headers,
+    rows: active.rows,
+    styles: active.styles,
+    sheetName: active.name,
+    sheetIndex: 0,
+    sheets,
     filePath,
   }
 }
@@ -142,11 +162,14 @@ export async function parseCsv(filePath: string): Promise<TableModel> {
         const data = results.data as string[][]
 
         if (data.length === 0) {
+          const styles = new Map()
           resolve({
             headers: [],
             rows: [],
-            styles: new Map(),
+            styles,
             sheetName: "Sheet1",
+            sheetIndex: 0,
+            sheets: [{ name: "Sheet1", headers: [], rows: [], styles }],
             filePath,
           })
           return
@@ -157,14 +180,17 @@ export async function parseCsv(filePath: string): Promise<TableModel> {
 
         console.log(`[Excel Lite] Parsed CSV file: ${path.basename(filePath)}`)
         console.log(
-          `[Excel Lite] Headers: ${headers.length}, Rows: ${rows.length}`
+          `[Excel Lite] Headers: ${headers.length}, Rows: ${rows.length}`,
         )
 
+        const styles = new Map()
         resolve({
           headers,
           rows,
-          styles: new Map(),
+          styles,
           sheetName: "Sheet1",
+          sheetIndex: 0,
+          sheets: [{ name: "Sheet1", headers, rows, styles }],
           filePath,
         })
       },
@@ -187,7 +213,7 @@ export async function parseFile(filePath: string): Promise<TableModel> {
     return parseCsv(filePath)
   } else {
     throw new Error(
-      `Unsupported file type: ${ext}. Supported types: .xlsx, .xls, .csv`
+      `Unsupported file type: ${ext}. Supported types: .xlsx, .xls, .csv`,
     )
   }
 }

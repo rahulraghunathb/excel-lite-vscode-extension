@@ -34,6 +34,8 @@ export class ExcelPanel {
   }[] = []
   private _isAutoSaveEnabled: boolean = false
   private _clipboard: any[][] | null = null
+  private _history: { rows: any[][]; styles: Map<string, CellStyle> }[] = []
+  private _maxHistory = 50
 
   public static createOrShow(extensionUri: vscode.Uri, tableModel: TableModel) {
     const column = vscode.window.activeTextEditor
@@ -73,7 +75,9 @@ export class ExcelPanel {
 
     // IMPORTANT: Attach message listener BEFORE setting HTML to avoid missing the 'ready' signal
     this._panel.webview.onDidReceiveMessage(
-      (message: WebviewMessage) => this._handleMessage(message),
+      (message: WebviewMessage) => {
+        void this._handleMessage(message)
+      },
       null,
       this._disposables,
     )
@@ -93,7 +97,7 @@ export class ExcelPanel {
     this._update()
   }
 
-  private _handleMessage(message: WebviewMessage) {
+  private async _handleMessage(message: WebviewMessage) {
     console.log(`[Excel Lite] Received message: ${message.type}`)
     switch (message.type) {
       case "ready":
@@ -118,11 +122,17 @@ export class ExcelPanel {
       case "style":
         this._handleStyleChange(message.payload)
         break
+      case "undo":
+        this._undo()
+        break
+      case "switchSheet":
+        this._handleSwitchSheet(message.payload?.index)
+        break
       case "renameFile":
-        this._handleRenameFile()
+        await this._handleRenameFile()
         break
       case "renameSheet":
-        this._handleRenameSheet()
+        await this._handleRenameSheet(message.payload?.index)
         break
       case "edit":
         this._handleCellEdit(message.payload)
@@ -131,7 +141,7 @@ export class ExcelPanel {
         this._isAutoSaveEnabled = message.payload
         break
       case "clipboard":
-        this._handleClipboard(message.payload)
+        await this._handleClipboard(message.payload)
         break
     }
   }
@@ -191,7 +201,9 @@ export class ExcelPanel {
     const { originalIndices } = this._getProcessedRows()
     const realRowIndex = originalIndices[payload.row]
     if (realRowIndex !== undefined) {
+      this._pushHistory()
       this._tableModel.rows[realRowIndex][payload.col] = payload.value
+      this._commitActiveSheet()
       this._triggerAutoSave()
       this._update()
     }
@@ -202,6 +214,7 @@ export class ExcelPanel {
     color?: string
   }) {
     if (this._selectedRanges.length === 0) return
+    this._pushHistory()
     const { originalIndices } = this._getProcessedRows()
 
     this._selectedRanges.forEach((range) => {
@@ -258,8 +271,11 @@ export class ExcelPanel {
     }
   }
 
-  private async _handleRenameSheet() {
-    const currentName = this._tableModel.sheetName || "Sheet1"
+  private async _handleRenameSheet(index?: number) {
+    const sheetIndex =
+      typeof index === "number" ? index : this._tableModel.sheetIndex
+    const currentName =
+      this._tableModel.sheets[sheetIndex]?.name || this._tableModel.sheetName
     const newName = await vscode.window.showInputBox({
       prompt: "Rename sheet",
       value: currentName,
@@ -269,12 +285,18 @@ export class ExcelPanel {
       },
     })
     if (!newName || newName === currentName) return
-    this._tableModel.sheetName = newName
+    const sheet = this._tableModel.sheets[sheetIndex]
+    if (sheet) sheet.name = newName
+    if (sheetIndex === this._tableModel.sheetIndex) {
+      this._tableModel.sheetName = newName
+    }
     this._update()
     this._triggerAutoSave()
   }
 
-  private _handleClipboard(payload: { action: "copy" | "cut" | "paste" }) {
+  private async _handleClipboard(payload: {
+    action: "copy" | "cut" | "paste"
+  }) {
     if (this._selectedRanges.length === 0) return
     const { rows, originalIndices } = this._getProcessedRows()
     const selection = this._selectedRanges[0]
@@ -293,28 +315,97 @@ export class ExcelPanel {
         data.push(rowData)
       }
       this._clipboard = data
+      const plainText = data
+        .map((row) => row.map((cell) => String(cell ?? "")).join("\t"))
+        .join("\n")
+      await vscode.env.clipboard.writeText(plainText)
       if (payload.action === "cut") {
+        this._pushHistory()
         this._triggerAutoSave()
         this._update()
       }
     } else if (payload.action === "paste" && this._clipboard) {
       const startRow = selection.startRow
       const startCol = selection.startCol
+      const clipboardText = await vscode.env.clipboard.readText()
+      const parsed = clipboardText
+        ? clipboardText
+            .split(/\r?\n/)
+            .filter(
+              (line, idx, arr) => !(line === "" && idx === arr.length - 1),
+            )
+            .map((line) => line.split("\t"))
+        : null
+      const source = parsed && parsed.length > 0 ? parsed : this._clipboard
+      if (!source) return
 
-      for (let r = 0; r < this._clipboard.length; r++) {
+      this._pushHistory()
+      for (let r = 0; r < source.length; r++) {
         const targetRow = startRow + r
         if (targetRow >= rows.length) break
         const realRow = originalIndices[targetRow]
 
-        for (let c = 0; c < this._clipboard[r].length; c++) {
+        for (let c = 0; c < source[r].length; c++) {
           const targetCol = startCol + c
           if (targetCol >= this._tableModel.headers.length) break
-          this._tableModel.rows[realRow][targetCol] = this._clipboard[r][c]
+          this._tableModel.rows[realRow][targetCol] = source[r][c]
         }
       }
+      this._commitActiveSheet()
       this._triggerAutoSave()
       this._update()
     }
+  }
+
+  private _handleSwitchSheet(index?: number) {
+    if (typeof index !== "number") return
+    if (!this._tableModel.sheets[index]) return
+    this._commitActiveSheet()
+    const sheet = this._tableModel.sheets[index]
+    this._tableModel.sheetIndex = index
+    this._tableModel.sheetName = sheet.name
+    this._tableModel.headers = sheet.headers
+    this._tableModel.rows = sheet.rows
+    this._styles = new Map(sheet.styles)
+    this._filters = new Map()
+    this._sortColumn = -1
+    this._sortDirection = "none"
+    this._selectedRanges = []
+    this._update()
+  }
+
+  private _pushHistory() {
+    const snapshot = {
+      rows: JSON.parse(JSON.stringify(this._tableModel.rows)) as any[][],
+      styles: new Map(
+        Array.from(this._styles.entries()).map(([key, value]) => [
+          key,
+          { ...value },
+        ]),
+      ),
+    }
+    this._history.push(snapshot)
+    if (this._history.length > this._maxHistory) {
+      this._history.shift()
+    }
+  }
+
+  private _undo() {
+    const snapshot = this._history.pop()
+    if (!snapshot) return
+    this._tableModel.rows = snapshot.rows
+    this._styles = snapshot.styles
+    this._commitActiveSheet()
+    this._update()
+  }
+
+  private _commitActiveSheet() {
+    const sheet = this._tableModel.sheets[this._tableModel.sheetIndex]
+    if (!sheet) return
+    sheet.headers = this._tableModel.headers
+    sheet.rows = this._tableModel.rows
+    sheet.styles = new Map(this._styles)
+    sheet.name = this._tableModel.sheetName
   }
 
   private _triggerAutoSave() {
@@ -425,6 +516,7 @@ export class ExcelPanel {
    * Sends the latest data and state to the webview.
    */
   private _update() {
+    this._commitActiveSheet()
     const { rows, originalIndices } = this._getProcessedRows()
     const stylesForWebview: Record<string, CellStyle> = {}
     this._styles.forEach((style, key) => {
@@ -439,6 +531,11 @@ export class ExcelPanel {
         originalIndices,
         styles: stylesForWebview,
         sheetName: this._tableModel.sheetName,
+        sheetIndex: this._tableModel.sheetIndex,
+        sheets: this._tableModel.sheets.map((sheet, index) => ({
+          name: sheet.name,
+          index,
+        })),
         isAutoSaveEnabled: this._isAutoSaveEnabled,
       },
     })
