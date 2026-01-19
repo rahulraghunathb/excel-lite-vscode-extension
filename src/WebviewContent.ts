@@ -14,6 +14,11 @@ export function getHtmlShell(): string {
             --text-secondary: var(--vscode-descriptionForeground); 
             --accent: var(--vscode-focusBorder); 
             --selection: color-mix(in srgb, var(--vscode-editor-selectionBackground) 60%, transparent);
+            --toolbar-height: 44px;
+            --status-height: 26px;
+            --sheet-height: 30px;
+            --letter-height: 26px;
+            --header-height: 34px;
         }
         body[data-theme="light"] { 
             --bg-primary: #f5f6f8; 
@@ -36,29 +41,30 @@ export function getHtmlShell(): string {
             --selection: rgba(14, 99, 156, 0.4);
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Segoe UI', sans-serif; background: var(--bg-primary); color: var(--text-primary); overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
-        .toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); }
-        .grid-container { flex: 1; overflow: auto; position: relative; }
-        table { border-collapse: collapse; min-width: 100%; table-layout: fixed; }
-        thead th { position: sticky; top: 0; z-index: 20; background: var(--bg-header); border: 1px solid var(--border-color); padding: 8px; font-weight: 600; text-align: left; min-width: 100px; white-space: normal; word-break: break-word; }
-        thead tr:first-child th { top: 0; }
-        thead tr:last-child th { top: 32px; }
-        th:first-child, td:first-child { position: sticky; left: 0; z-index: 15; background: var(--bg-secondary); text-align: center; min-width: 50px; width: 50px; border-right: 2px solid var(--border-color); }
+        body { font-family: "Source Sans 3", "Segoe UI", sans-serif; background: var(--bg-primary); color: var(--text-primary); overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
+        .toolbar { display: flex; align-items: center; gap: 10px; padding: 6px 12px; min-height: var(--toolbar-height); background: linear-gradient(180deg, var(--bg-secondary), color-mix(in srgb, var(--bg-secondary) 80%, var(--bg-primary))); border-bottom: 1px solid var(--border-color); box-shadow: 0 1px 0 rgba(0,0,0,0.08); flex-wrap: wrap; user-select: none; }
+        .grid-container { flex: 1; overflow: auto; position: relative; background: var(--bg-primary); user-select: none; }
+        table { border-collapse: collapse; min-width: 100%; table-layout: fixed; font-size: 12px; line-height: 1.4; user-select: none; }
+        thead th { position: sticky; top: 0; z-index: 20; background: var(--bg-header); border: 1px solid var(--border-color); padding: 0; font-weight: 600; text-align: left; min-width: 100px; white-space: normal; word-break: break-word; user-select: none; }
+        thead tr:first-child th { top: 0; height: var(--letter-height); padding: 0 12px; line-height: var(--letter-height); }
+        thead tr:last-child th { top: var(--letter-height); min-height: var(--header-height); padding: 6px 24px 6px 10px; line-height: 1.3; }
+        th:first-child, td:first-child { position: sticky; left: 0; z-index: 15; background: var(--bg-secondary); text-align: center; min-width: 46px; width: 46px; border-right: 2px solid var(--border-color); }
         thead th:first-child { z-index: 30; }
         th.corner { background: var(--bg-secondary); }
-        th.col-letter { text-align: center; font-weight: 600; cursor: pointer; position: relative; }
+        th.col-letter { text-align: center; font-weight: 600; cursor: pointer; position: relative; font-size: 11px; color: var(--text-secondary); letter-spacing: 0.4px; text-transform: uppercase; }
         th.header-cell { position: relative; }
-        td.row-header { position: sticky; left: 0; background: var(--bg-secondary); }
-        td { border: 1px solid var(--border-color); padding: 6px 12px; white-space: normal; word-break: break-word; overflow: hidden; cursor: cell; vertical-align: top; }
+        td.row-header { position: sticky; left: 0; background: var(--bg-secondary); font-size: 11px; color: var(--text-secondary); }
+        td { border: 1px solid var(--border-color); padding: 6px 10px; white-space: normal; word-break: break-word; overflow: hidden; cursor: cell; vertical-align: top; user-select: none; }
         td.selected { background: var(--selection) !important; outline: 1px solid var(--accent); }
         th.col-selected, td.row-selected { background: color-mix(in srgb, var(--selection) 70%, transparent); }
-        .status-bar { padding: 4px 12px; background: var(--bg-secondary); border-top: 1px solid var(--border-color); font-size: 11px; display: flex; justify-content: space-between; align-items: center; height: 24px;}
-        .sheet-tabs { display: flex; gap: 6px; padding: 4px 8px; background: var(--bg-secondary); border-top: 1px solid var(--border-color); overflow-x: auto; }
-        .sheet-tab { padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; background: var(--bg-header); border: 1px solid var(--border-color); white-space: nowrap; }
-        .sheet-tab.active { background: #1a7f37; color: white; border-color: #1a7f37; }
-        .col-resizer { position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: col-resize; }
+        .status-bar { padding: 4px 12px; background: var(--bg-secondary); border-top: 1px solid var(--border-color); font-size: 11px; display: flex; justify-content: space-between; align-items: center; height: var(--status-height); user-select: none; }
+        .sheet-tabs { display: flex; gap: 8px; padding: 4px 10px; background: var(--bg-secondary); border-top: 1px solid var(--border-color); overflow-x: auto; height: var(--sheet-height); align-items: center; user-select: none; }
+        .sheet-tab { padding: 4px 12px; border-radius: 999px; cursor: pointer; font-size: 12px; background: transparent; border: 1px solid var(--border-color); white-space: nowrap; color: var(--text-secondary); transition: all 0.15s ease; }
+        .sheet-tab.active { background: #1a7f37; color: white; border-color: #1a7f37; box-shadow: 0 6px 14px rgba(26, 127, 55, 0.25); }
+        .col-resizer { position: absolute; top: 0; right: -4px; width: 12px; height: 100%; cursor: col-resize; z-index: 6; pointer-events: auto; }
+        .col-resizer:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
         .row-resizer { position: absolute; bottom: 0; left: 0; height: 6px; width: 100%; cursor: row-resize; }
-        .filter-popup { display: none; position: absolute; background: var(--bg-primary); border: 1px solid var(--border-color); padding: 10px; z-index: 100; box-shadow: 0 8px 18px rgba(0,0,0,0.4); width: 240px; border-radius: 6px; }
+        .filter-popup { display: none; position: absolute; background: var(--bg-primary); border: 1px solid var(--border-color); padding: 10px; z-index: 100; box-shadow: 0 12px 28px rgba(0,0,0,0.25); width: 240px; border-radius: 10px; }
         .filter-section { padding: 6px 0; border-bottom: 1px solid var(--border-color); }
         .filter-section:last-child { border-bottom: none; }
         .filter-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; cursor: pointer; }
@@ -77,10 +83,13 @@ export function getHtmlShell(): string {
         .filter-footer .cancel { background: transparent; border-color: var(--border-color); color: var(--text-primary); }
         .filter-footer .ok { background: #1a7f37; color: white; }
         .show { display: block; }
-        .edit-input { position: absolute; border: 2px solid var(--accent); background: var(--bg-primary); color: var(--text-primary); z-index: 50; padding: 4px; font-family: inherit; }
-        button { background: var(--bg-header); border: 1px solid var(--border-color); color: var(--text-primary); padding: 4px 8px; cursor: pointer; border-radius: 2px; }
-        button:hover { background: var(--border-color); }
-        .filter-icon { font-size: 10px; opacity: 0.5; padding: 2px; cursor: pointer; float: right;}
+        .edit-input { position: absolute; border: 2px solid var(--accent); background: var(--bg-primary); color: var(--text-primary); z-index: 50; padding: 6px 8px; font-family: inherit; user-select: text; }
+        button { background: var(--bg-header); border: 1px solid var(--border-color); color: var(--text-primary); padding: 5px 10px; cursor: pointer; border-radius: 8px; font-size: 12px; transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 6px; }
+        button:hover { background: color-mix(in srgb, var(--bg-header) 70%, var(--accent)); color: white; }
+        .toolbar button { font-weight: 600; text-transform: none; }
+        .toolbar .icon { font-size: 12px; opacity: 0.75; line-height: 1; }
+        .toolbar .spacer { width: 1px; height: 20px; background: var(--border-color); margin: 0 4px; }
+        .filter-icon { font-size: 11px; opacity: 0.6; padding: 0; cursor: pointer; position: absolute; right: 16px; top: 50%; transform: translateY(-50%); }
         .filter-icon:hover { opacity: 1; }
         .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
         .toggle input { display: none; }
@@ -88,6 +97,8 @@ export function getHtmlShell(): string {
         .toggle .thumb { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: white; transition: transform 0.2s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
         .toggle input:checked + .track { background: #1a7f37; }
         .toggle input:checked + .track .thumb { transform: translateX(18px); }
+        #fillColor { width: 26px; height: 26px; border: 1px solid var(--border-color); border-radius: 8px; padding: 0; background: transparent; cursor: pointer; }
+        #sheetName { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border-color); background: var(--bg-header); font-size: 12px; }
         #loading { position: absolute; top:0; left:0; right:0; bottom:0; background: var(--bg-primary); display: flex; align-items: center; justify-content: center; z-index: 1000; }
     </style>
 </head>
@@ -95,11 +106,11 @@ export function getHtmlShell(): string {
     <div id="loading">Loading Data...</div>
 
     <div class="toolbar">
-        <button id="boldBtn" title="Bold"><b>B</b></button>
-        <input type="color" id="fillColor" value="#0e639c" style="width:30px; height:24px; border:none; padding:0; background:none; cursor:pointer;">
-        <button id="fillBtn" title="Fill Color">🪣</button>
-        <button id="noFillBtn" title="No Fill">No Color</button>
-        <div style="width: 1px; height: 20px; background: var(--border-color); margin: 0 4px;"></div>
+        <button id="boldBtn" title="Bold"><span class="icon">𝐁</span>Bold</button>
+        <input type="color" id="fillColor" value="#0e639c">
+        <button id="fillBtn" title="Fill Color"><span class="icon">⬛</span>Fill</button>
+        <button id="noFillBtn" title="No Fill"><span class="icon">⬜</span>No Fill</button>
+        <div class="spacer"></div>
         <label class="toggle">
             <input type="checkbox" id="autoSaveToggle">
             <span class="track"><span class="thumb"></span></span>
@@ -111,8 +122,8 @@ export function getHtmlShell(): string {
             Dark Mode
         </label>
         <span style="flex:1"></span>
-        <button id="renameFileBtn" title="Rename File">Rename File</button>
-        <button id="renameSheetBtn" title="Rename Sheet">Rename Sheet</button>
+        <button id="renameFileBtn" title="Rename File"><span class="icon">✎</span>Rename File</button>
+        <button id="renameSheetBtn" title="Rename Sheet"><span class="icon">✎</span>Rename Sheet</button>
         <span id="sheetName" style="font-size: 12px; font-weight: 500;"></span>
     </div>
 
@@ -227,6 +238,7 @@ export function getHtmlShell(): string {
                             '<button class="ok" type="button">OK</button>' +
                         '</div>' +
                     '</div>' +
+                    '<div class="col-resizer" data-col="' + i + '"></div>' +
                 '</th>';
             });
             headRow.innerHTML = hHtml;
