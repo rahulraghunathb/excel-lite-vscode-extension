@@ -1,0 +1,115 @@
+{
+  "name": "excel-lite",
+  "displayName": "Excel Lite",
+  "description": "View and edit Excel/CSV files with sorting, filtering, and formatting",
+  "version": "0.0.1",
+  "publisher": "rahul",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "excel-lite.helloWorld",
+        "title": "Excel Lite: Hello World"
+      },
+      {
+        "command": "excel-lite.openViewer",
+        "title": "Excel Lite: Open Viewer"
+      },
+      {
+        "command": "excel-lite.saveChanges",
+        "title": "Excel Lite: Save Changes"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "excel-lite.openViewer",
+          "when": "resourceExtname == .xlsx || resourceExtname == .csv",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "excel-lite.openViewer",
+          "when": "resourceExtname == .xlsx || resourceExtname == .csv",
+          "group": "navigation"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "excel-lite.openViewer",
+          "when": "resourceExtname == .xlsx || resourceExtname == .csv",
+          "group": "navigation"
+        }
+      ]
+    },
+    "customEditors": [
+      {
+        "viewType": "excel-lite.viewer",
+        "displayName": "Excel Lite Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.xlsx"
+          },
+          {
+            "filenamePattern": "*.csv"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "excel-lite-sidebar",
+          "title": "Excel Lite",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "excel-lite-sidebar": [
+        {
+          "id": "excel-lite-welcome",
+          "name": "Welcome",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "excel-lite-welcome",
+        "contents": "Welcome to Excel Lite! \n [Open Excel/CSV File](command:excel-lite.openViewer) \n To make this the default viewer, right-click a .csv or .xlsx file and select 'Open With...' -> 'Configure default editor...'"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify",
+    "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/papaparse": "^5.5.2",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "esbuild": "^0.19.8",
+    "eslint": "^8.55.0",
+    "typescript": "^5.3.2"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "papaparse": "^5.5.3"
+  }
+}
