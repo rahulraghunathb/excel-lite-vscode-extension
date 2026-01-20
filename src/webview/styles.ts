@@ -85,15 +85,20 @@ export const gridStyles = `
 table {
     border-collapse: separate;
     border-spacing: 0;
-    width: 100%;
+    width: auto;
+    min-width: 100%;
     font-size: 12px;
     line-height: 1.4;
-    table-layout: fixed;
+    table-layout: auto;
+}
+
+thead {
+    position: sticky;
+    top: 0;
+    z-index: 100;
 }
 
 thead th {
-    position: sticky;
-    z-index: 10;
     background: var(--bg-header);
     border-bottom: 1px solid var(--border-color);
     border-right: 1px solid var(--border-color);
@@ -103,7 +108,6 @@ thead th {
 }
 
 thead tr:first-child th {
-    top: 0;
     height: 28px;
     line-height: 28px;
     padding: 0 8px;
@@ -113,15 +117,13 @@ thead tr:first-child th {
 }
 
 thead tr:nth-child(2) th {
-    top: 28px;
-    height: 36px;
     padding: 6px 28px 6px 10px;
 }
 
 th:first-child, td:first-child {
     position: sticky;
     left: 0;
-    z-index: 11;
+    z-index: 50;
     background: var(--bg-secondary);
     text-align: center;
     width: 50px;
@@ -130,11 +132,28 @@ th:first-child, td:first-child {
     border-right: 1px solid var(--border-color);
 }
 
-thead th:first-child { z-index: 12; cursor: pointer; }
-thead th:first-child:hover { background: var(--bg-header); }
+thead th:first-child {
+    z-index: 150;
+    cursor: pointer;
+}
 
-th.col-letter { position: relative; }
-th.header-cell { position: relative; line-height: 1.4; vertical-align: middle; }
+thead th:first-child:hover {
+    background: var(--bg-header);
+}
+
+th.col-letter {
+    position: relative;
+    min-width: 50px;
+}
+
+th.header-cell {
+    position: relative;
+    line-height: 1.4;
+    vertical-align: middle;
+    min-width: 80px;
+    white-space: normal;
+    word-wrap: break-word;
+}
 
 td.row-header {
     background: var(--bg-secondary);
@@ -152,6 +171,7 @@ td {
     overflow: hidden;
     cursor: cell;
     vertical-align: top;
+    white-space: nowrap;
 }
 
 td.selected {

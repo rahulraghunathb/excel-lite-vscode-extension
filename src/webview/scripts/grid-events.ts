@@ -8,19 +8,23 @@ export const gridEventsScript = `
 // ============================================
 
 grid.onmousedown = e => {
-    if (!e.target.closest('input, textarea')) {
-        e.preventDefault();
+    if (!e.target || e.target.closest('input, textarea')) {
+        return;
     }
 
-    const td = e.target.closest('td[data-row]');
-    if (e.target.closest('.col-resizer') || e.target.closest('.row-resizer')) return;
+    const target = e.target;
+    if (target.closest('.col-resizer') || target.closest('.row-resizer')) return;
 
-    const th = e.target.closest('th[data-col]');
-    const rh = e.target.closest('.row-header');
-    const selectAllCell = e.target.closest('#selectAll');
+    e.preventDefault();
 
-    // Select All - click on # corner cell or top-left corner
-    const isCornerCell = selectAllCell || (e.target.closest('th') && !e.target.closest('th').dataset.col && e.target.closest('thead tr:first-child'));
+    const td = target.closest('td[data-row]');
+    const th = target.closest('th[data-col]');
+    const rh = target.closest('.row-header');
+    const selectAllCell = target.closest('#selectAll');
+    const thAny = target.closest('th');
+
+    // Select All - click on # corner cell or top-left empty corner
+    const isCornerCell = selectAllCell || (thAny && !thAny.dataset.col && thAny.closest('thead tr:first-child'));
     if (isCornerCell) {
         selectAll();
         return;
@@ -34,8 +38,7 @@ grid.onmousedown = e => {
             e.ctrlKey || e.metaKey
         );
     } else if (th) {
-        if (!th.classList.contains('col-letter')) return;
-        if (e.target.classList.contains('filter-icon')) return;
+        if (target.classList.contains('filter-icon')) return;
         selectColumn(parseInt(th.dataset.col));
     } else if (rh) {
         selectRow(parseInt(rh.dataset.rowIdx));

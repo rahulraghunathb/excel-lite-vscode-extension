@@ -15,25 +15,22 @@ function renderGrid(data) {
     document.getElementById('autoSaveToggle').checked = data.isAutoSaveEnabled;
     renderSheetTabs(data);
 
-    // Initialize column widths if not set
-    for (let i = 0; i < numCols; i++) {
-        if (!columnWidths[i]) columnWidths[i] = DEFAULT_COL_WIDTH;
-    }
-
     // Render Column Letters
-    let lettersHtml = '<th style="width:50px"></th>';
+    let lettersHtml = '<th style="width:50px; min-width:50px; max-width:50px;"></th>';
     for (let i = 0; i < numCols; i++) {
         const w = columnWidths[i];
-        lettersHtml += '<th class="col-letter" data-col="' + i + '" style="width:' + w + 'px">' +
+        const style = w ? 'style="width:' + w + 'px; min-width:' + w + 'px; max-width:' + w + 'px;"' : '';
+        lettersHtml += '<th class="col-letter" data-col="' + i + '" ' + style + '>' +
             getColumnLetter(i) + '<div class="col-resizer" data-col="' + i + '"></div></th>';
     }
     colLetters.innerHTML = lettersHtml;
 
     // Render Headers
-    let hHtml = '<th id="selectAll">#</th>';
+    let hHtml = '<th id="selectAll" style="width:50px; min-width:50px; max-width:50px;">#</th>';
     data.headers.forEach((h, i) => {
         const w = columnWidths[i];
-        hHtml += '<th class="header-cell" data-col="' + i + '" style="width:' + w + 'px">' +
+        const style = w ? 'style="width:' + w + 'px; min-width:' + w + 'px; max-width:' + w + 'px;"' : '';
+        hHtml += '<th class="header-cell" data-col="' + i + '" ' + style + '>' +
             escapeHtml(h) + '<span class="filter-icon">▼</span>' +
             getFilterPopupHtml(i) +
             '<div class="col-resizer" data-col="' + i + '"></div>' +
@@ -45,14 +42,28 @@ function renderGrid(data) {
     let bHtml = '';
     data.rows.forEach((row, dIdx) => {
         const oIdx = data.originalIndices[dIdx];
-        const rh = rowHeights[dIdx] || DEFAULT_ROW_HEIGHT;
-        bHtml += '<tr><td class="row-header" data-row-idx="' + dIdx + '" style="height:' + rh + 'px">' +
+        const rh = rowHeights[dIdx];
+        const rowStyle = rh ? 'style="height:' + rh + 'px;"' : '';
+
+        bHtml += '<tr ' + rowStyle + '><td class="row-header" data-row-idx="' + dIdx + '">' +
             (oIdx + 1) + '<div class="row-resizer" data-row="' + dIdx + '"></div></td>';
+
         row.forEach((cell, cIdx) => {
             const style = data.styles[oIdx + ',' + cIdx] || {};
-            const styleAttr = (style.bold ? 'font-weight:bold;' : '') +
-                (style.bgColor ? 'background-color:' + style.bgColor + ';' : '');
-            bHtml += '<td data-row="' + dIdx + '" data-col="' + cIdx + '" style="' + styleAttr + 'height:' + rh + 'px">' +
+            const cw = columnWidths[cIdx];
+
+            let cellStyles = [];
+            if (style.bold) cellStyles.push('font-weight:bold');
+            if (style.bgColor) cellStyles.push('background-color:' + style.bgColor);
+            if (rh) cellStyles.push('height:' + rh + 'px');
+            if (cw) {
+                cellStyles.push('width:' + cw + 'px');
+                cellStyles.push('min-width:' + cw + 'px');
+                cellStyles.push('max-width:' + cw + 'px');
+            }
+
+            const styleAttr = cellStyles.length > 0 ? 'style="' + cellStyles.join(';') + '"' : '';
+            bHtml += '<td data-row="' + dIdx + '" data-col="' + cIdx + '" ' + styleAttr + '>' +
                 escapeHtml(String(cell ?? '')) + '</td>';
         });
         bHtml += '</tr>';

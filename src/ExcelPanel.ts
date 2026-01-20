@@ -143,6 +143,10 @@ export class ExcelPanel {
       case "clipboard":
         await this._handleClipboard(message.payload)
         break
+      case "error":
+        console.error(`[Excel Lite Webview Error] ${message.payload?.message}`, message.payload)
+        vscode.window.showErrorMessage(`Excel Lite Webview Error: ${message.payload?.message}`)
+        break
     }
   }
 
