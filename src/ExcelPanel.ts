@@ -1,7 +1,7 @@
 import * as vscode from "vscode"
 import * as path from "path"
 import { TableModel, CellStyle } from "./fileParser"
-import { getHtmlShell } from "./WebviewContent"
+import { getHtmlShell } from "./webview"
 
 interface WebviewMessage {
   type: string
