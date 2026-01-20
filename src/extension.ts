@@ -23,14 +23,14 @@ class ExcelEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
   private static readonly viewType = "excel-lite.viewer"
 
-  constructor(private readonly context: vscode.ExtensionContext) {}
+  constructor(private readonly context: vscode.ExtensionContext) { }
 
   public async openCustomDocument(
     uri: vscode.Uri,
     _openContext: vscode.CustomDocumentOpenContext,
     _token: vscode.CancellationToken
   ): Promise<vscode.CustomDocument> {
-    return { uri, dispose: () => {} }
+    return { uri, dispose: () => { } }
   }
 
   public async resolveCustomEditor(
@@ -50,16 +50,6 @@ class ExcelEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
 export function activate(context: vscode.ExtensionContext) {
   console.log("[Excel Lite] Extension activated")
-
-  // Add status bar item to verify activation
-  const statusBarItem = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Right,
-    100
-  )
-  statusBarItem.text = "$(table) Excel Lite Active"
-  statusBarItem.tooltip = "Excel Lite extension is running"
-  statusBarItem.show()
-  context.subscriptions.push(statusBarItem)
 
   // Register Custom Editor Provider
   context.subscriptions.push(ExcelEditorProvider.register(context))
@@ -197,4 +187,4 @@ export function activate(context: vscode.ExtensionContext) {
   )
 }
 
-export function deactivate() {}
+export function deactivate() { }

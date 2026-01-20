@@ -1,18 +1,18 @@
 export function getHtmlShell(): string {
-  return `<!DOCTYPE html>
+    return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Excel Lite</title>
     <style>
-        :root { 
-            --bg-primary: var(--vscode-editor-background); 
-            --bg-secondary: var(--vscode-sideBar-background); 
-            --bg-header: var(--vscode-editorGroupHeader-tabsBackground); 
-            --border-color: var(--vscode-panel-border); 
-            --text-primary: var(--vscode-editor-foreground); 
-            --text-secondary: var(--vscode-descriptionForeground); 
-            --accent: var(--vscode-focusBorder); 
+        :root {
+            --bg-primary: var(--vscode-editor-background);
+            --bg-secondary: var(--vscode-sideBar-background);
+            --bg-header: var(--vscode-editorGroupHeader-tabsBackground);
+            --border-color: var(--vscode-panel-border);
+            --text-primary: var(--vscode-editor-foreground);
+            --text-secondary: var(--vscode-descriptionForeground);
+            --accent: var(--vscode-focusBorder);
             --selection: color-mix(in srgb, var(--vscode-editor-selectionBackground) 60%, transparent);
             --toolbar-height: 44px;
             --status-height: 26px;
@@ -20,50 +20,51 @@ export function getHtmlShell(): string {
             --letter-height: 26px;
             --header-height: 34px;
         }
-        body[data-theme="light"] { 
-            --bg-primary: #f5f6f8; 
-            --bg-secondary: #ffffff; 
-            --bg-header: #eef0f3; 
-            --border-color: #d0d4da; 
-            --text-primary: #1f2328; 
-            --text-secondary: #6b7280; 
-            --accent: #1f6feb; 
+        body[data-theme="light"] {
+            --bg-primary: #f5f6f8;
+            --bg-secondary: #ffffff;
+            --bg-header: #eef0f3;
+            --border-color: #d0d4da;
+            --text-primary: #1f2328;
+            --text-secondary: #6b7280;
+            --accent: #1f6feb;
             --selection: rgba(31, 111, 235, 0.2);
         }
-        body[data-theme="dark"] { 
-            --bg-primary: #1e1e1e; 
-            --bg-secondary: #252526; 
-            --bg-header: #2d2d30; 
-            --border-color: #3c3c3c; 
-            --text-primary: #cccccc; 
-            --text-secondary: #9d9d9d; 
-            --accent: #0e639c; 
+        body[data-theme="dark"] {
+            --bg-primary: #1e1e1e;
+            --bg-secondary: #252526;
+            --bg-header: #2d2d30;
+            --border-color: #3c3c3c;
+            --text-primary: #cccccc;
+            --text-secondary: #9d9d9d;
+            --accent: #0e639c;
             --selection: rgba(14, 99, 156, 0.4);
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: "Source Sans 3", "Segoe UI", sans-serif; background: var(--bg-primary); color: var(--text-primary); overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
         .toolbar { display: flex; align-items: center; gap: 10px; padding: 6px 12px; min-height: var(--toolbar-height); background: linear-gradient(180deg, var(--bg-secondary), color-mix(in srgb, var(--bg-secondary) 80%, var(--bg-primary))); border-bottom: 1px solid var(--border-color); box-shadow: 0 1px 0 rgba(0,0,0,0.08); flex-wrap: wrap; user-select: none; }
-        .grid-container { flex: 1; overflow: auto; position: relative; background: var(--bg-primary); user-select: none; }
-        table { border-collapse: collapse; min-width: 100%; table-layout: fixed; font-size: 12px; line-height: 1.4; user-select: none; }
-        thead th { position: sticky; top: 0; z-index: 20; background: var(--bg-header); border: 1px solid var(--border-color); padding: 0; font-weight: 600; text-align: left; min-width: 100px; white-space: normal; word-break: break-word; user-select: none; }
-        thead tr:first-child th { top: 0; height: var(--letter-height); padding: 0 12px; line-height: var(--letter-height); }
-        thead tr:last-child th { top: var(--letter-height); min-height: var(--header-height); padding: 6px 24px 6px 10px; line-height: 1.3; }
-        th:first-child, td:first-child { position: sticky; left: 0; z-index: 15; background: var(--bg-secondary); text-align: center; min-width: 46px; width: 46px; border-right: 2px solid var(--border-color); }
-        thead th:first-child { z-index: 30; }
-        th.corner { background: var(--bg-secondary); }
-        th.col-letter { text-align: center; font-weight: 600; cursor: pointer; position: relative; font-size: 11px; color: var(--text-secondary); letter-spacing: 0.4px; text-transform: uppercase; }
-        th.header-cell { position: relative; }
-        td.row-header { position: sticky; left: 0; background: var(--bg-secondary); font-size: 11px; color: var(--text-secondary); }
-        td { border: 1px solid var(--border-color); padding: 6px 10px; white-space: normal; word-break: break-word; overflow: hidden; cursor: cell; vertical-align: top; user-select: none; }
-        td.selected { background: var(--selection) !important; outline: 1px solid var(--accent); }
+        .grid-container { flex: 1; overflow: auto; position: relative; background: var(--bg-primary); }
+        table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12px; line-height: 1.4; table-layout: fixed; }
+        thead th { position: sticky; z-index: 10; background: var(--bg-header); border-bottom: 1px solid var(--border-color); border-right: 1px solid var(--border-color); padding: 0; font-weight: 600; text-align: left; }
+        thead tr:first-child th { top: 0; height: 28px; line-height: 28px; padding: 0 8px; text-align: center; font-size: 11px; color: var(--text-secondary); }
+        thead tr:nth-child(2) th { top: 28px; height: 36px; padding: 6px 28px 6px 10px; }
+        th:first-child, td:first-child { position: sticky; left: 0; z-index: 11; background: var(--bg-secondary); text-align: center; width: 50px; min-width: 50px; max-width: 50px; border-right: 1px solid var(--border-color); }
+        thead th:first-child { z-index: 12; cursor: pointer; }
+        thead th:first-child:hover { background: var(--bg-header); }
+        th.col-letter { position: relative; }
+        th.header-cell { position: relative; line-height: 1.4; vertical-align: middle; }
+        td.row-header { background: var(--bg-secondary); font-size: 11px; color: var(--text-secondary); position: relative; line-height: 1.4; vertical-align: middle; }
+        td { border-bottom: 1px solid var(--border-color); border-right: 1px solid var(--border-color); padding: 6px 10px; overflow: hidden; cursor: cell; vertical-align: top; }
+        td.selected { background: var(--selection) !important; outline: 2px solid var(--accent); outline-offset: -2px; }
         th.col-selected, td.row-selected { background: color-mix(in srgb, var(--selection) 70%, transparent); }
         .status-bar { padding: 4px 12px; background: var(--bg-secondary); border-top: 1px solid var(--border-color); font-size: 11px; display: flex; justify-content: space-between; align-items: center; height: var(--status-height); user-select: none; }
         .sheet-tabs { display: flex; gap: 8px; padding: 4px 10px; background: var(--bg-secondary); border-top: 1px solid var(--border-color); overflow-x: auto; height: var(--sheet-height); align-items: center; user-select: none; }
         .sheet-tab { padding: 4px 12px; border-radius: 999px; cursor: pointer; font-size: 12px; background: transparent; border: 1px solid var(--border-color); white-space: nowrap; color: var(--text-secondary); transition: all 0.15s ease; }
         .sheet-tab.active { background: #1a7f37; color: white; border-color: #1a7f37; box-shadow: 0 6px 14px rgba(26, 127, 55, 0.25); }
-        .col-resizer { position: absolute; top: 0; right: -4px; width: 12px; height: 100%; cursor: col-resize; z-index: 6; pointer-events: auto; }
-        .col-resizer:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
-        .row-resizer { position: absolute; bottom: 0; left: 0; height: 6px; width: 100%; cursor: row-resize; }
+        .col-resizer { position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: col-resize; z-index: 20; background: transparent; }
+        .col-resizer:hover, .col-resizer.active { background: var(--accent); }
+        .row-resizer { position: absolute; bottom: 0; left: 0; height: 4px; width: 100%; cursor: row-resize; z-index: 20; background: transparent; }
+        .row-resizer:hover, .row-resizer.active { background: var(--accent); }
         .filter-popup { display: none; position: absolute; background: var(--bg-primary); border: 1px solid var(--border-color); padding: 10px; z-index: 100; box-shadow: 0 12px 28px rgba(0,0,0,0.25); width: 240px; border-radius: 10px; }
         .filter-section { padding: 6px 0; border-bottom: 1px solid var(--border-color); }
         .filter-section:last-child { border-bottom: none; }
@@ -162,14 +163,16 @@ export function getHtmlShell(): string {
         let resizing = null;
         let resizeStart = 0;
         let resizeSize = 0;
-        
+
         const grid = document.getElementById('grid');
         const gridBody = document.getElementById('gridBody');
         const headRow = document.getElementById('headRow');
         const colLetters = document.getElementById('colLetters');
+        const dataTable = document.getElementById('dataTable');
         const loading = document.getElementById('loading');
         const sheetTabs = document.getElementById('sheetTabs');
         const themeToggle = document.getElementById('themeToggle');
+        const DEFAULT_COL_WIDTH = 120;
         const state = vscode.getState() || {};
         const initialTheme = state.theme || 'dark';
 
@@ -196,17 +199,24 @@ export function getHtmlShell(): string {
             document.getElementById('autoSaveToggle').checked = data.isAutoSaveEnabled;
             renderSheetTabs(data);
 
-            // Render Column Letters
-            let lettersHtml = '<th class="corner"></th>';
+            // Initialize column widths if not set
             for (let i = 0; i < numCols; i++) {
-                lettersHtml += '<th class="col-letter" data-col="' + i + '">' + getColumnLetter(i) + '<div class="col-resizer" data-col="' + i + '"></div></th>';
+                if (!columnWidths[i]) columnWidths[i] = DEFAULT_COL_WIDTH;
+            }
+
+            // Render Column Letters
+            let lettersHtml = '<th style="width:50px"></th>';
+            for (let i = 0; i < numCols; i++) {
+                const w = columnWidths[i];
+                lettersHtml += '<th class="col-letter" data-col="' + i + '" style="width:' + w + 'px">' + getColumnLetter(i) + '<div class="col-resizer" data-col="' + i + '"></div></th>';
             }
             colLetters.innerHTML = lettersHtml;
 
             // Render Headers
             let hHtml = '<th id="selectAll">#</th>';
             data.headers.forEach((h, i) => {
-                hHtml += '<th class="header-cell" data-col="' + i + '">' + escapeHtml(h) + ' <span class="filter-icon">▼</span>' +
+                const w = columnWidths[i];
+                hHtml += '<th class="header-cell" data-col="' + i + '" style="width:' + w + 'px">' + escapeHtml(h) + '<span class="filter-icon">▼</span>' +
                     '<div class="filter-popup" data-col="' + i + '">' +
                         '<div class="filter-section">' +
                             '<div class="filter-item" data-action="sort-asc">Sort A to Z</div>' +
@@ -247,18 +257,17 @@ export function getHtmlShell(): string {
             let bHtml = '';
             data.rows.forEach((row, dIdx) => {
                 const oIdx = data.originalIndices[dIdx];
-                bHtml += '<tr style="height:' + (rowHeights[dIdx] || 24) + 'px"><td class="row-header" data-row-idx="' + dIdx + '">' + (oIdx + 1) + '<div class="row-resizer" data-row="' + dIdx + '"></div></td>';
+                const rh = rowHeights[dIdx] || 28;
+                bHtml += '<tr><td class="row-header" data-row-idx="' + dIdx + '" style="height:' + rh + 'px">' + (oIdx + 1) + '<div class="row-resizer" data-row="' + dIdx + '"></div></td>';
                 row.forEach((cell, cIdx) => {
                     const style = data.styles[oIdx + ',' + cIdx] || {};
-                    const styleAttr = (style.bold ? 'font-weight:bold;' : '') + (style.bgColor ? 'background-color:' + style.bgColor : '');
-                    const widthStyle = columnWidths[cIdx] ? 'width:' + columnWidths[cIdx] + 'px;' : '';
-                    bHtml += '<td data-row="' + dIdx + '" data-col="' + cIdx + '" style="' + styleAttr + widthStyle + '">' + escapeHtml(String(cell ?? '')) + '</td>';
+                    const styleAttr = (style.bold ? 'font-weight:bold;' : '') + (style.bgColor ? 'background-color:' + style.bgColor + ';' : '');
+                    bHtml += '<td data-row="' + dIdx + '" data-col="' + cIdx + '" style="' + styleAttr + 'height:' + rh + 'px">' + escapeHtml(String(cell ?? '')) + '</td>';
                 });
                 bHtml += '</tr>';
             });
             gridBody.innerHTML = bHtml;
             attachEvents();
-            applyColumnWidths();
         }
 
         function escapeHtml(text) {
@@ -409,23 +418,27 @@ export function getHtmlShell(): string {
 
             document.querySelectorAll('.col-resizer').forEach(handle => {
                 handle.onmousedown = (e) => {
+                    e.preventDefault();
                     e.stopPropagation();
                     const col = parseInt(handle.dataset.col);
-                    resizing = { type: 'col', index: col };
+                    resizing = { type: 'col', index: col, handle: handle };
                     resizeStart = e.clientX;
-                    const th = handle.parentElement;
-                    resizeSize = th.getBoundingClientRect().width;
+                    resizeSize = columnWidths[col] || DEFAULT_COL_WIDTH;
+                    handle.classList.add('active');
+                    document.body.style.cursor = 'col-resize';
                 };
             });
 
             document.querySelectorAll('.row-resizer').forEach(handle => {
                 handle.onmousedown = (e) => {
+                    e.preventDefault();
                     e.stopPropagation();
                     const row = parseInt(handle.dataset.row);
-                    resizing = { type: 'row', index: row };
+                    resizing = { type: 'row', index: row, handle: handle };
                     resizeStart = e.clientY;
-                    const tr = handle.closest('tr');
-                    resizeSize = tr.getBoundingClientRect().height;
+                    resizeSize = rowHeights[row] || 28;
+                    handle.classList.add('active');
+                    document.body.style.cursor = 'row-resize';
                 };
             });
 
@@ -435,17 +448,24 @@ export function getHtmlShell(): string {
                 });
                 document.addEventListener('mousemove', (e) => {
                     if (!resizing) return;
+                    e.preventDefault();
                     if (resizing.type === 'col') {
-                        const next = Math.max(50, resizeSize + (e.clientX - resizeStart));
+                        const delta = e.clientX - resizeStart;
+                        const next = Math.max(50, resizeSize + delta);
                         columnWidths[resizing.index] = next;
                         applyColumnWidths();
                     } else {
-                        const next = Math.max(18, resizeSize + (e.clientY - resizeStart));
+                        const delta = e.clientY - resizeStart;
+                        const next = Math.max(24, resizeSize + delta);
                         rowHeights[resizing.index] = next;
                         applyRowHeights();
                     }
                 });
                 document.addEventListener('mouseup', () => {
+                    if (resizing) {
+                        if (resizing.handle) resizing.handle.classList.remove('active');
+                        document.body.style.cursor = '';
+                    }
                     resizing = null;
                 });
                 eventsBound = true;
@@ -453,13 +473,11 @@ export function getHtmlShell(): string {
         }
 
         function applyColumnWidths() {
-            document.querySelectorAll('th.col-letter, th.header-cell').forEach(th => {
+            document.querySelectorAll('th[data-col]').forEach(th => {
                 const c = parseInt(th.dataset.col);
-                if (columnWidths[c]) th.style.width = columnWidths[c] + 'px';
-            });
-            document.querySelectorAll('td[data-col]').forEach(td => {
-                const c = parseInt(td.dataset.col);
-                if (columnWidths[c]) td.style.width = columnWidths[c] + 'px';
+                if (columnWidths[c]) {
+                    th.style.width = columnWidths[c] + 'px';
+                }
             });
         }
 
@@ -468,7 +486,10 @@ export function getHtmlShell(): string {
                 const rowHeader = tr.querySelector('.row-header');
                 if (!rowHeader) return;
                 const r = parseInt(rowHeader.dataset.rowIdx);
-                if (rowHeights[r]) tr.style.height = rowHeights[r] + 'px';
+                const h = rowHeights[r] || 28;
+                tr.querySelectorAll('td').forEach(td => {
+                    td.style.height = h + 'px';
+                });
             });
         }
 
@@ -503,11 +524,28 @@ export function getHtmlShell(): string {
         }
 
         grid.onmousedown = e => {
+            if (!e.target.closest('input, textarea')) {
+                e.preventDefault();
+            }
             const td = e.target.closest('td[data-row]');
             if (e.target.closest('.col-resizer') || e.target.closest('.row-resizer')) return;
             const th = e.target.closest('th[data-col]');
             const rh = e.target.closest('.row-header');
-            
+            const selectAllCell = e.target.closest('#selectAll');
+
+            // Select All - click on # corner cell or top-left corner
+            const isCornerCell = selectAllCell || (e.target.closest('th') && !e.target.closest('th').dataset.col && e.target.closest('thead tr:first-child'));
+            if (isCornerCell) {
+                isS = false;
+                sR = { r: 0, c: 0 };
+                sE = { r: currentRows.length - 1, c: numCols - 1 };
+                anchor = { r: 0, c: 0 };
+                ranges = [{ startRow: 0, startCol: 0, endRow: currentRows.length - 1, endCol: numCols - 1 }];
+                updateSelectionUI();
+                postSelection();
+                return;
+            }
+
             if (td) {
                 const point = { r: parseInt(td.dataset.row), c: parseInt(td.dataset.col) };
                 if (e.shiftKey && anchor) {
@@ -569,6 +607,12 @@ export function getHtmlShell(): string {
             }
         };
 
+        grid.addEventListener('selectstart', (e) => {
+            if (!e.target.closest('input, textarea')) {
+                e.preventDefault();
+            }
+        });
+
         document.onmouseup = () => {
             if (isS) {
                 isS = false;
@@ -578,7 +622,7 @@ export function getHtmlShell(): string {
 
         function updateSelectionUI() {
             if (ranges.length === 0) return;
-            
+
             document.querySelectorAll('td[data-row]').forEach(td => {
                 const r = parseInt(td.dataset.row), c = parseInt(td.dataset.col);
                 const selected = ranges.some(range => r >= range.startRow && r <= range.endRow && c >= range.startCol && c <= range.endCol);
@@ -606,7 +650,7 @@ export function getHtmlShell(): string {
         grid.ondblclick = e => {
             const td = e.target.closest('td[data-row]');
             if (!td) return;
-            
+
             const rect = td.getBoundingClientRect();
             const input = document.createElement('input');
             input.className = 'edit-input';
@@ -615,26 +659,26 @@ export function getHtmlShell(): string {
             input.style.left = (rect.left + window.scrollX) + 'px';
             input.style.width = rect.width + 'px';
             input.style.height = rect.height + 'px';
-            
+
             document.body.appendChild(input);
             input.focus();
             input.select();
-            
+
             const finish = () => {
                 if (input.parentNode) {
-                    vscode.postMessage({ type: 'edit', payload: { 
-                        row: parseInt(td.dataset.row), 
-                        col: parseInt(td.dataset.col), 
-                        value: input.value 
+                    vscode.postMessage({ type: 'edit', payload: {
+                        row: parseInt(td.dataset.row),
+                        col: parseInt(td.dataset.col),
+                        value: input.value
                     }});
                     document.body.removeChild(input);
                 }
             };
-            
+
             input.onblur = finish;
-            input.onkeydown = env => { 
-                if (env.key === 'Enter') finish(); 
-                if (env.key === 'Escape') document.body.removeChild(input); 
+            input.onkeydown = env => {
+                if (env.key === 'Enter') finish();
+                if (env.key === 'Escape') document.body.removeChild(input);
             };
         };
 
