@@ -2,6 +2,12 @@
 
 This document provides instructions for setting up, building, and maintaining the Excel Lite VS Code extension.
 
+## Repository & Links
+
+- **Author**: Rahul Raghunath Bodanki
+- **GitHub**: [github.com/rahulraghunathb](https://github.com/rahulraghunathb)
+- **Portfolio**: [portfolio-website-beta-two-82.vercel.app](https://portfolio-website-beta-two-82.vercel.app/)
+
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) (v16.x or later)
@@ -12,8 +18,8 @@ This document provides instructions for setting up, building, and maintaining th
 1.  **Clone the repository**:
 
     ```bash
-    git clone <repository-url>
-    cd excel-extension
+    git clone https://github.com/rahulraghunathb/excel-lite-vscode-extension.git
+    cd excel-lite-vscode-extension
     ```
 
 2.  **Install dependencies**:

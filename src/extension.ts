@@ -54,13 +54,6 @@ export function activate(context: vscode.ExtensionContext) {
   // Register Custom Editor Provider
   context.subscriptions.push(ExcelEditorProvider.register(context))
 
-  // Hello World command
-  context.subscriptions.push(
-    vscode.commands.registerCommand("excel-lite.helloWorld", () => {
-      vscode.window.showInformationMessage("Hello World from Excel Lite!")
-    })
-  )
-
   // Open Viewer command
   context.subscriptions.push(
     vscode.commands.registerCommand("excel-lite.openViewer", async () => {

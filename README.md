@@ -2,6 +2,12 @@
 
 Excel Lite is a VS Code extension for viewing and editing Excel/CSV files with spreadsheet-style interactions, filtering, and formatting.
 
+## Author
+
+**Rahul Raghunath Bodanki**
+- [GitHub](https://github.com/rahulraghunathb)
+- [Portfolio](https://portfolio-website-beta-two-82.vercel.app/)
+
 ## Features
 
 ### File Support
