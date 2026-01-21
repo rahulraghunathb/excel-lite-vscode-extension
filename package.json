@@ -2,7 +2,7 @@
   "name": "excel-lite",
   "displayName": "Excel Lite",
   "description": "View and edit Excel/CSV files with sorting, filtering, and formatting",
-  "version": "0.0.1",
+  "version": "1.0.1",
   "publisher": "rahulraghunathb",
   "icon": "media/logo_generated.jpeg",
   "repository": {

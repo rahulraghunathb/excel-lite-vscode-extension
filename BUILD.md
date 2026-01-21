@@ -85,6 +85,6 @@ To install the extension without running it in a development host:
 1.  **Open VS Code**.
 2.  Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on macOS) to open the **Command Palette**.
 3.  Type `Extensions: Install from VSIX...` and select it.
-4.  Navigate to the `excel-extension` folder and select the `.vsix` file (e.g., `excel-lite-0.0.1.vsix`).
+4.  Navigate to the `excel-extension` folder and select the `.vsix` file (e.g., `excel-lite-1.0.1.vsix`).
 5.  Once the installation is complete, click **Reload Now** if prompted.
 6.  The extension is now permanently installed. You can open any `.xlsx` or `.csv` file, right-click, and select "Open With..." -> "Excel Lite Viewer" to use it.
