@@ -2,9 +2,9 @@
   "name": "excel-lite",
   "displayName": "Excel Lite",
   "description": "View and edit Excel/CSV files with sorting, filtering, and formatting",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "publisher": "rahulraghunathb",
-  "icon": "media/logo_generated.jpeg",
+  "icon": "media/logo_white_background.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/rahulraghunathb/excel-lite-vscode-extension"
@@ -77,7 +77,7 @@
         {
           "id": "excel-lite-sidebar",
           "title": "Excel Lite",
-          "icon": "media/logo_generated.jpeg"
+          "icon": "media/icon.svg"
         }
       ]
     },
@@ -86,7 +86,7 @@
         {
           "id": "excel-lite-welcome",
           "name": "Welcome",
-          "icon": "media/logo_generated.jpeg"
+          "icon": "media/icon.svg"
         }
       ]
     },
