@@ -638,6 +638,7 @@ describe("end-to-end: panel lifecycle", () => {
       cells: [{ sheetIndex: 0, row: 0, col: 0, before: "Widget", after: "Z" }],
       styles: [],
       sheetNames: [],
+      structural: [],
     })
     await flush()
     assert.equal(panel.posted.length, 0)
@@ -721,5 +722,393 @@ describe("end-to-end: scale", () => {
     assert.equal(document.getCell(0, 0, 0), "0")
     edits[59].undo()
     assert.equal(document.getCell(0, 59, 0), "59")
+  })
+})
+
+describe("end-to-end: insert and delete rows", () => {
+  test("inserting a row shifts the data below it in the saved file", async () => {
+    const { panel, document, filePath } = await open(createRichWorkbook)
+
+    panel.send("structural", { kind: "insertRows", at: 1, count: 1 })
+    await flush()
+    await refetch(panel)
+
+    assert.deepEqual(
+      visibleRows(panel).map((row) => row[0]),
+      ["Widget", "", "Gadget", "", "Doohickey"],
+    )
+
+    await document.save()
+    const sheet = (await readWorkbook(filePath)).getWorksheet("Data")!
+    assert.equal(sheet.getCell("A2").value, "Widget")
+    assert.equal(sheet.getCell("A3").value, null)
+    assert.equal(sheet.getCell("A4").value, "Gadget")
+    // The formula moved down with its row and kept its expression.
+    assert.equal((sheet.getCell("D4").value as any).formula, "B3*C3")
+  })
+
+  test("deleting a row removes it from the saved file", async () => {
+    const { panel, document, filePath } = await open(createRichWorkbook)
+
+    panel.send("structural", { kind: "deleteRows", at: 0, count: 1 })
+    await flush()
+    await refetch(panel)
+    assert.deepEqual(
+      visibleRows(panel).map((row) => row[0]),
+      ["Gadget", "", "Doohickey"],
+    )
+
+    await document.save()
+    const sheet = (await readWorkbook(filePath)).getWorksheet("Data")!
+    assert.equal(sheet.getCell("A1").value, "Name", "header untouched")
+    assert.equal(sheet.getCell("A2").value, "Gadget")
+  })
+
+  test("undoing a delete restores the values and the formatting", async () => {
+    const { panel, document, filePath } = await open(createRichWorkbook)
+    const edits: any[] = []
+    document.onDidChangeDocument((event) => edits.push(event))
+
+    // Row 3 (Doohickey) carries the bold + yellow fill.
+    panel.send("structural", { kind: "deleteRows", at: 3, count: 1 })
+    await flush()
+    assert.equal(document.model.sheets[0].rows.length, 3)
+
+    edits[0].undo()
+    await flush()
+    assert.equal(document.model.sheets[0].rows.length, 4)
+    assert.equal(document.getCell(0, 3, 0), "Doohickey")
+    assert.deepEqual(document.getStyle(0, 3, 0), {
+      bold: true,
+      bgColor: "#ffff00",
+    })
+
+    // And the restoration must survive a save, not just live in memory.
+    await document.save()
+    const sheet = (await readWorkbook(filePath)).getWorksheet("Data")!
+    assert.equal(sheet.getCell("A5").value, "Doohickey")
+    assert.equal(sheet.getCell("A5").font?.bold, true)
+    assert.equal((sheet.getCell("A5").fill as any)?.fgColor?.argb, "FFFFFF00")
+  })
+
+  test("an edit made before an insert still saves to the right cell", async () => {
+    const { panel, document, filePath } = await open(createRichWorkbook)
+
+    // Edit the last row, then push it down by inserting above it.
+    panel.send("edit", { row: 3, col: 0, value: "Edited last" })
+    await flush()
+    panel.send("structural", { kind: "insertRows", at: 0, count: 2 })
+    await flush()
+
+    await document.save()
+    const sheet = (await readWorkbook(filePath)).getWorksheet("Data")!
+    // Was sheet row 5, now row 7 after two insertions.
+    assert.equal(sheet.getCell("A7").value, "Edited last")
+    assert.equal(sheet.getCell("A2").value, null)
+  })
+
+  test("other sheets are untouched by a structural change", async () => {
+    const { panel, document, filePath } = await open(createRichWorkbook)
+
+    panel.send("structural", { kind: "deleteRows", at: 0, count: 2 })
+    await flush()
+    await document.save()
+
+    const saved = await readWorkbook(filePath)
+    assert.deepEqual(saved.worksheets.map((w) => w.name), ["Data", "Summary", "Notes"])
+    assert.equal(saved.getWorksheet("Notes")!.getCell("A2").value, "keep me")
+    assert.equal(saved.getWorksheet("Summary")!.getCell("B2").value, 33.75)
+  })
+
+  test("structural edits are refused while sorted or filtered", async () => {
+    const { panel, document } = await open(createRichWorkbook)
+
+    panel.send("sort", { column: 1, direction: "asc" })
+    await flush()
+    panel.send("structural", { kind: "insertRows", at: 0, count: 1 })
+    await flush()
+
+    assert.equal(document.model.sheets[0].rows.length, 4, "no rows added")
+    assert.match(harness.warningMessages[0], /Clear the sort and filters/)
+    assert.equal(panel.last("init")!.payload.canEditStructure, false)
+  })
+})
+
+describe("end-to-end: insert and delete columns", () => {
+  test("inserting a column shifts later columns in the saved file", async () => {
+    const { panel, document, filePath } = await open(createRichWorkbook)
+
+    panel.send("structural", { kind: "insertCols", at: 1, count: 1 })
+    await flush()
+    await refetch(panel)
+
+    const headers = panel.last("init")!.payload.headers
+    assert.equal(headers[0], "Name")
+    assert.equal(headers[2], "Qty")
+
+    await document.save()
+    const sheet = (await readWorkbook(filePath)).getWorksheet("Data")!
+    assert.equal(sheet.getCell("A1").value, "Name")
+    assert.equal(sheet.getCell("B1").value, null, "new blank column")
+    assert.equal(sheet.getCell("C1").value, "Qty")
+    assert.equal(sheet.getCell("C2").value, 10)
+  })
+
+  test("deleting a column removes it from the saved file", async () => {
+    const { panel, document, filePath } = await open(createRichWorkbook)
+
+    panel.send("structural", { kind: "deleteCols", at: 1, count: 1 })
+    await flush()
+
+    await document.save()
+    const sheet = (await readWorkbook(filePath)).getWorksheet("Data")!
+    assert.equal(sheet.getCell("A1").value, "Name")
+    assert.equal(sheet.getCell("B1").value, "Price")
+    assert.equal(sheet.getCell("B2").value, 2.5)
+  })
+
+  test("undoing a column delete restores headers and data", async () => {
+    const { panel, document, filePath } = await open(createRichWorkbook)
+    const edits: any[] = []
+    document.onDidChangeDocument((event) => edits.push(event))
+
+    panel.send("structural", { kind: "deleteCols", at: 1, count: 1 })
+    await flush()
+    edits[0].undo()
+    await flush()
+
+    assert.equal(document.model.sheets[0].headers[1], "Qty")
+    assert.equal(document.getCell(0, 0, 1), 10)
+
+    await document.save()
+    const sheet = (await readWorkbook(filePath)).getWorksheet("Data")!
+    assert.equal(sheet.getCell("B2").value, 10)
+  })
+
+  test("refuses to delete the last remaining column", async () => {
+    const { panel, document } = await open((file) => {
+      writeText(file, "only\n1\n2\n")
+    }, ".csv")
+
+    panel.send("structural", { kind: "deleteCols", at: 0, count: 1 })
+    await flush()
+    assert.equal(document.model.sheets[0].headers.length, 1)
+    assert.match(harness.warningMessages[0], /at least one column/)
+  })
+
+  test("row operations work on a CSV too", async () => {
+    const { panel, document, filePath } = await open(
+      (file) => writeText(file, "a,b\n1,2\n3,4\n"),
+      ".csv",
+    )
+
+    panel.send("structural", { kind: "deleteRows", at: 0, count: 1 })
+    await flush()
+    await document.save()
+    assert.equal(readText(filePath), "a,b\n3,4\n")
+  })
+})
+
+describe("end-to-end: find and replace", () => {
+  test("find reports matches in view coordinates", async () => {
+    const { panel } = await open(createRichWorkbook)
+
+    panel.send("find", { query: "get" })
+    await flush()
+    const results = panel.last("findResults")!.payload
+    // "Widget" (row 0) and "Gadget" (row 1).
+    assert.deepEqual(results.matches, [
+      { row: 0, col: 0 },
+      { row: 1, col: 0 },
+    ])
+    assert.equal(results.query, "get")
+  })
+
+  test("find only sees rows the filter leaves visible", async () => {
+    const { panel } = await open(createRichWorkbook)
+
+    panel.send("filter", {
+      column: 0,
+      filter: { kind: "condition", operator: "contains", value: "widget" },
+    })
+    await flush()
+    panel.send("find", { query: "get" })
+    await flush()
+
+    assert.deepEqual(panel.last("findResults")!.payload.matches, [
+      { row: 0, col: 0 },
+    ])
+  })
+
+  test("replacing one cell edits only that cell", async () => {
+    const { panel, document } = await open(createRichWorkbook)
+
+    panel.send("replace", { query: "get", replacement: "GET", row: 1, col: 0 })
+    await flush()
+
+    assert.equal(document.getCell(0, 1, 0), "GadGET")
+    assert.equal(document.getCell(0, 0, 0), "Widget", "other rows untouched")
+    assert.equal(panel.last("replaceDone")!.payload.replaced, 1)
+  })
+
+  test("replace all is a single undoable edit", async () => {
+    const { panel, document } = await open(createRichWorkbook)
+    const edits: any[] = []
+    document.onDidChangeDocument((event) => edits.push(event))
+
+    panel.send("replace", { query: "get", replacement: "X", all: true })
+    await flush()
+
+    assert.equal(document.getCell(0, 0, 0), "WidX")
+    assert.equal(document.getCell(0, 1, 0), "GadX")
+    assert.equal(edits.length, 1, "one undo step for the whole operation")
+
+    edits[0].undo()
+    assert.equal(document.getCell(0, 0, 0), "Widget")
+    assert.equal(document.getCell(0, 1, 0), "Gadget")
+  })
+
+  test("a replacement that yields a number is stored as a number", async () => {
+    const { panel, document } = await open(createRichWorkbook)
+    panel.send("replace", {
+      query: "Widget",
+      replacement: "500",
+      wholeCell: true,
+      all: true,
+    })
+    await flush()
+    assert.strictEqual(document.getCell(0, 0, 0), 500)
+  })
+
+  test("replacing with no match reports zero and makes no edit", async () => {
+    const { panel, document } = await open(createRichWorkbook)
+    panel.send("replace", { query: "nothing here", replacement: "x", all: true })
+    await flush()
+    assert.equal(panel.last("replaceDone")!.payload.replaced, 0)
+    assert.equal(document.hasUnsavedChanges, false)
+  })
+})
+
+describe("end-to-end: formatting", () => {
+  test("italic, underline and alignment round-trip to the file", async () => {
+    const { panel, document, filePath } = await open(createRichWorkbook)
+
+    panel.send("selection", {
+      ranges: [{ startRow: 0, startCol: 0, endRow: 0, endCol: 0 }],
+    })
+    await flush()
+    panel.send("style", { type: "italic" })
+    await flush()
+    panel.send("style", { type: "underline" })
+    await flush()
+    panel.send("style", { type: "align", align: "center" })
+    await flush()
+    panel.send("style", { type: "fontColor", color: "#c00000" })
+    await flush()
+
+    await document.save()
+    const cell = (await readWorkbook(filePath)).getWorksheet("Data")!.getCell("A2")
+    assert.equal(cell.font?.italic, true)
+    assert.equal(cell.font?.underline, true)
+    assert.equal(cell.font?.color?.argb, "FFC00000")
+    assert.equal(cell.alignment?.horizontal, "center")
+  })
+
+  test("toggles apply to the whole selection as a group", async () => {
+    const { panel, document } = await open(createRichWorkbook)
+
+    // Row 3 is already bold; rows 0-3 are a mixed selection.
+    panel.send("selection", {
+      ranges: [{ startRow: 0, startCol: 0, endRow: 3, endCol: 0 }],
+    })
+    await flush()
+    panel.send("style", { type: "bold" })
+    await flush()
+
+    for (let row = 0; row <= 3; row++) {
+      assert.equal(document.getStyle(0, row, 0)?.bold, true, `row ${row}`)
+    }
+
+    // Now everything is bold, so the same click clears it.
+    panel.send("style", { type: "bold" })
+    await flush()
+    for (let row = 0; row <= 3; row++) {
+      assert.equal(document.getStyle(0, row, 0)?.bold, undefined, `row ${row}`)
+    }
+  })
+
+  test("clicking the active alignment clears it", async () => {
+    const { panel, document } = await open(createRichWorkbook)
+    panel.send("selection", {
+      ranges: [{ startRow: 0, startCol: 0, endRow: 0, endCol: 0 }],
+    })
+    await flush()
+
+    panel.send("style", { type: "align", align: "right" })
+    await flush()
+    assert.equal(document.getStyle(0, 0, 0)?.align, "right")
+
+    panel.send("style", { type: "align", align: "right" })
+    await flush()
+    assert.equal(document.getStyle(0, 0, 0)?.align, undefined)
+  })
+
+  test("clear formatting removes every attribute at once", async () => {
+    const { panel, document } = await open(createRichWorkbook)
+
+    panel.send("selection", {
+      ranges: [{ startRow: 3, startCol: 0, endRow: 3, endCol: 0 }],
+    })
+    await flush()
+    assert.deepEqual(document.getStyle(0, 3, 0), {
+      bold: true,
+      bgColor: "#ffff00",
+    })
+
+    panel.send("style", { type: "clearFormat" })
+    await flush()
+    assert.equal(document.getStyle(0, 3, 0), undefined)
+  })
+
+  test("the formula bar reports the anchor cell's reference and text", async () => {
+    const { panel } = await open(createRichWorkbook)
+
+    panel.send("selection", {
+      ranges: [{ startRow: 0, startCol: 3, endRow: 0, endCol: 3 }],
+    })
+    await flush()
+
+    const active = panel.last("activeCell")!.payload
+    assert.equal(active.ref, "D2", "column letter plus the real sheet row")
+    assert.equal(active.text, "=B2*C2")
+  })
+
+  test("the formula bar reference follows the underlying row when sorted", async () => {
+    const { panel } = await open(createRichWorkbook)
+
+    panel.send("sort", { column: 1, direction: "desc" })
+    await flush()
+    // View row 1 is Doohickey, which lives at sheet row 5.
+    panel.send("selection", {
+      ranges: [{ startRow: 1, startCol: 0, endRow: 1, endCol: 0 }],
+    })
+    await flush()
+
+    const active = panel.last("activeCell")!.payload
+    assert.equal(active.ref, "A5")
+    assert.equal(active.text, "Doohickey")
+  })
+
+  test("clearing the selection empties the formula bar", async () => {
+    const { panel } = await open(createRichWorkbook)
+    panel.send("selection", {
+      ranges: [{ startRow: 0, startCol: 0, endRow: 0, endCol: 0 }],
+    })
+    await flush()
+    assert.ok(panel.last("activeCell")!.payload)
+
+    panel.send("selection", { ranges: [] })
+    await flush()
+    assert.equal(panel.last("activeCell")!.payload, null)
   })
 })

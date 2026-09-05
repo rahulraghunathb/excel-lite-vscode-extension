@@ -2,7 +2,7 @@
   "name": "excel-lite",
   "displayName": "Excel Lite",
   "description": "View and edit Excel/CSV files in VS Code with sorting, filtering, formatting and non-destructive saves",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "publisher": "rahulraghunathb",
   "icon": "media/logo_white_background.png",
   "repository": {

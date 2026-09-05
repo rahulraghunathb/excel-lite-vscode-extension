@@ -385,4 +385,126 @@ tr.spacer td { border: none; padding: 0; background: var(--bg); }
     color: var(--fg-dim);
     z-index: 100;
 }
+
+/* ---------------------------------------------------------- formula bar */
+
+.formula-bar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 28px;
+    padding: 0 10px;
+    background: var(--bg-alt);
+    border-bottom: 1px solid var(--border);
+}
+.formula-bar .cell-ref {
+    min-width: 62px;
+    padding: 2px 6px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font-size: 11px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-dim);
+}
+.formula-bar .fx { font-style: italic; color: var(--fg-dim); font-size: 11px; }
+.formula-bar input {
+    flex: 1;
+    height: 22px;
+    padding: 0 6px;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    background: var(--vscode-input-background, var(--bg));
+    color: var(--vscode-input-foreground, var(--fg));
+    font-family: var(--vscode-editor-font-family, Consolas, monospace);
+    font-size: 12px;
+}
+.formula-bar input:focus { border-color: var(--accent); outline: none; }
+.formula-bar input:disabled { background: none; color: var(--fg-dim); }
+
+/* ------------------------------------------------------------ find panel */
+
+.find-panel {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    background: var(--bg-alt);
+    border-bottom: 1px solid var(--border);
+}
+.find-panel input[type="text"] {
+    height: 24px;
+    padding: 0 7px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--vscode-input-background, var(--bg));
+    color: var(--vscode-input-foreground, var(--fg));
+    font: inherit;
+    font-size: 12px;
+    min-width: 140px;
+}
+.find-panel input[type="text"]:focus { border-color: var(--accent); outline: none; }
+.find-panel button {
+    height: 24px;
+    min-width: 26px;
+    padding: 0 8px;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    background: var(--btn-bg);
+    color: var(--btn-fg);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+.find-panel button:hover { border-color: var(--accent); }
+.find-panel .mini {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 11px;
+    color: var(--fg-dim);
+    cursor: pointer;
+    user-select: none;
+}
+.find-count { font-size: 11px; color: var(--fg-dim); min-width: 76px; }
+.find-count.none { color: var(--vscode-errorForeground, #f14c4c); }
+
+td.cell.match { outline: 1px dashed var(--accent); outline-offset: -1px; }
+td.cell.match-current { background: var(--vscode-editor-findMatchBackground, #7a5c00); }
+
+/* ---------------------------------------------------------- context menu */
+
+.context-menu {
+    position: fixed;
+    z-index: 700;
+    min-width: 190px;
+    padding: 4px;
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.35);
+    font-size: 12px;
+}
+.context-menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 6px 10px;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: var(--fg);
+    font: inherit;
+    cursor: pointer;
+}
+.context-menu button:hover:not(:disabled) { background: var(--selection); }
+.context-menu button:disabled { color: var(--fg-dim); cursor: default; opacity: .5; }
+.context-menu .sep { height: 1px; margin: 4px 2px; background: var(--border); }
+
+.toolbar button.fmt { min-width: 28px; justify-content: center; font-size: 13px; }
+.toolbar button.fmt.active { background: var(--accent); color: #fff; }
+.color-field .color-glyph { font-weight: 700; font-size: 11px; margin-right: 2px; }
+
 `

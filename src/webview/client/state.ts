@@ -1,4 +1,10 @@
-import type { InitPayload, SelectionRange, VsCodeApi } from "./protocol"
+import type {
+  CellStyle,
+  InitPayload,
+  Match,
+  SelectionRange,
+  VsCodeApi,
+} from "./protocol"
 
 export const DEFAULT_COL_WIDTH = 120
 export const DEFAULT_ROW_HEIGHT = 28
@@ -28,11 +34,16 @@ export const state = {
   sheetIndex: 0,
   activeFilters: new Set<number>(),
   sort: null as InitPayload["sort"],
+  canEditStructure: true,
+
+  /** Find-and-replace hits in the current view, and the focused one. */
+  matches: [] as Match[],
+  currentMatch: null as Match | null,
 
   /** Rows currently materialised in the DOM. */
   windowStart: 0,
   windowRows: [] as string[][],
-  windowStyles: {} as Record<string, { bold?: boolean; bgColor?: string; fontColor?: string }>,
+  windowStyles: {} as Record<string, CellStyle>,
   windowOriginalIndices: [] as number[],
   windowVersion: -1,
   pendingWindow: null as { start: number; count: number } | null,

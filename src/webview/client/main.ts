@@ -34,10 +34,25 @@ import {
   openFilterPopup,
   showFilterPopup,
 } from "./filterPopup"
+import {
+  closeContextMenu,
+  openCellMenu,
+  openColumnMenu,
+  openRowMenu,
+} from "./contextMenu"
+import {
+  closeFind,
+  handleFindResults,
+  isFindOpen,
+  openFind,
+  step,
+} from "./findPanel"
 import type {
+  ActiveCellPayload,
   AggregatesPayload,
   EditValuePayload,
   FilterOptionsPayload,
+  FindResultsPayload,
   InitPayload,
   WindowPayload,
 } from "./protocol"
@@ -63,6 +78,12 @@ window.addEventListener("message", (event) => {
       case "editValue":
         beginEdit(message.payload as EditValuePayload)
         break
+      case "activeCell":
+        handleActiveCell(message.payload as ActiveCellPayload | null)
+        break
+      case "findResults":
+        handleFindResults(message.payload as FindResultsPayload)
+        break
     }
   } catch (error) {
     vscode.postMessage({
@@ -83,6 +104,7 @@ function handleInit(payload: InitPayload) {
   state.sheetIndex = payload.sheetIndex
   state.sort = payload.sort
   state.activeFilters = new Set(payload.activeFilters)
+  state.canEditStructure = payload.canEditStructure
 
   // Drop any selection that no longer exists after a filter or sheet change.
   state.ranges = state.ranges
@@ -142,6 +164,72 @@ function handleAggregates(payload: AggregatesPayload | null) {
     0,
   )
   dom.selInfo.textContent = `${cells.toLocaleString()} cell${cells === 1 ? "" : "s"} selected`
+}
+
+
+// ---------------------------------------------------------------- formula bar
+
+const cellRef = document.getElementById("cellRef") as HTMLSpanElement
+const formulaInput = document.getElementById("formulaInput") as HTMLInputElement
+
+let activeCell: ActiveCellPayload | null = null
+
+function handleActiveCell(payload: ActiveCellPayload | null) {
+  activeCell = payload
+
+  if (!payload) {
+    cellRef.innerHTML = "&nbsp;"
+    formulaInput.value = ""
+    formulaInput.disabled = true
+    syncFormatButtons(null)
+    return
+  }
+
+  cellRef.textContent = payload.ref
+  formulaInput.disabled = false
+  // Don't fight the user while they are typing in the bar.
+  if (document.activeElement !== formulaInput) formulaInput.value = payload.text
+  syncFormatButtons(payload.style)
+}
+
+/** Light up the toolbar toggles that apply to the anchor cell. */
+function syncFormatButtons(style: ActiveCellPayload["style"]) {
+  const set = (id: string, on: boolean) =>
+    document.getElementById(id)?.classList.toggle("active", on)
+
+  set("boldBtn", !!style?.bold)
+  set("italicBtn", !!style?.italic)
+  set("underlineBtn", !!style?.underline)
+  set("alignLeftBtn", style?.align === "left")
+  set("alignCenterBtn", style?.align === "center")
+  set("alignRightBtn", style?.align === "right")
+}
+
+formulaInput.onkeydown = (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault()
+    if (activeCell) {
+      vscode.postMessage({
+        type: "edit",
+        payload: {
+          row: activeCell.row,
+          col: activeCell.col,
+          value: formulaInput.value,
+        },
+      })
+    }
+    dom.grid.focus()
+  } else if (event.key === "Escape") {
+    event.preventDefault()
+    if (activeCell) formulaInput.value = activeCell.text
+    dom.grid.focus()
+  }
+  event.stopPropagation()
+}
+
+formulaInput.onblur = () => {
+  // Abandon an uncommitted edit rather than guessing the user meant to save it.
+  if (activeCell) formulaInput.value = activeCell.text
 }
 
 // -------------------------------------------------------------------- editing
@@ -313,6 +401,7 @@ dom.grid.addEventListener("mousedown", (event) => {
   if (target.closest(".filter-icon")) return
 
   closeFilterPopup()
+  closeContextMenu()
   event.preventDefault()
   dom.grid.focus()
 
@@ -342,6 +431,65 @@ dom.grid.addEventListener("mousedown", (event) => {
   const header = target.closest<HTMLElement>("th[data-col]")
   if (header) selectColumn(Number(header.dataset.col))
 })
+
+dom.grid.addEventListener("contextmenu", (event) => {
+  const target = event.target as HTMLElement
+  event.preventDefault()
+
+  const rowHeader = target.closest<HTMLElement>("td.row-header")
+  if (rowHeader) {
+    const row = Number(rowHeader.dataset.row)
+    if (!isSelectedRow(row)) selectRow(row)
+    openRowMenu(row, event.clientX, event.clientY)
+    return
+  }
+
+  const header = target.closest<HTMLElement>("th[data-col]")
+  if (header) {
+    const col = Number(header.dataset.col)
+    if (!isSelectedColumn(col)) selectColumn(col)
+    openColumnMenu(col, event.clientX, event.clientY)
+    return
+  }
+
+  const cell = target.closest<HTMLElement>("td.cell")
+  if (cell) {
+    const row = Number(cell.dataset.row)
+    const col = Number(cell.dataset.col)
+    // Preserve an existing selection the click falls inside.
+    const inSelection = state.ranges.some(
+      (range) =>
+        row >= Math.min(range.startRow, range.endRow) &&
+        row <= Math.max(range.startRow, range.endRow) &&
+        col >= Math.min(range.startCol, range.endCol) &&
+        col <= Math.max(range.startCol, range.endCol),
+    )
+    if (!inSelection) selectCell(row, col)
+    openCellMenu(event.clientX, event.clientY)
+  }
+})
+
+/** Is this row already part of a whole-row selection? */
+function isSelectedRow(row: number): boolean {
+  return state.ranges.some(
+    (range) =>
+      row >= Math.min(range.startRow, range.endRow) &&
+      row <= Math.max(range.startRow, range.endRow) &&
+      Math.min(range.startCol, range.endCol) === 0 &&
+      Math.max(range.startCol, range.endCol) >= state.headers.length - 1,
+  )
+}
+
+/** Is this column already part of a whole-column selection? */
+function isSelectedColumn(col: number): boolean {
+  return state.ranges.some(
+    (range) =>
+      col >= Math.min(range.startCol, range.endCol) &&
+      col <= Math.max(range.startCol, range.endCol) &&
+      Math.min(range.startRow, range.endRow) === 0 &&
+      Math.max(range.startRow, range.endRow) >= state.totalRows - 1,
+  )
+}
 
 dom.grid.addEventListener("mousemove", (event) => {
   if (!state.isDragging) return
@@ -393,6 +541,7 @@ document.addEventListener("click", (event) => {
   }
 
   if (!target.closest(".filter-popup")) closeFilterPopup()
+  if (!target.closest(".context-menu")) closeContextMenu()
 })
 
 dom.sheetTabs.addEventListener("dblclick", (event) => {
@@ -428,6 +577,7 @@ function scheduleWindowFetch() {
 
 dom.grid.addEventListener("scroll", () => {
   handleGlobalScroll()
+  closeContextMenu()
   scheduleWindowFetch()
 })
 
@@ -468,6 +618,11 @@ document.addEventListener("keydown", (event) => {
       case "a":
         event.preventDefault()
         selectAll()
+        return
+      case "f":
+      case "h":
+        event.preventDefault()
+        openFind()
         return
       case "home":
         event.preventDefault()
@@ -532,8 +687,17 @@ document.addEventListener("keydown", (event) => {
       clearSelectedCells()
       break
     case "Escape":
+      closeContextMenu()
+      if (isFindOpen()) {
+        closeFind()
+        break
+      }
       clearSelection()
       closeFilterPopup()
+      break
+    case "F3":
+      event.preventDefault()
+      step(event.shiftKey ? -1 : 1)
       break
     default:
       // Typing over a selected cell replaces its contents, as in Excel.
@@ -551,18 +715,29 @@ function bind(id: string, handler: (element: HTMLElement) => void) {
   if (element) element.onclick = () => handler(element)
 }
 
-bind("boldBtn", () => vscode.postMessage({ type: "style", payload: { type: "bold" } }))
+const style = (payload: Record<string, unknown>) =>
+  vscode.postMessage({ type: "style", payload })
+
+bind("boldBtn", () => style({ type: "bold" }))
+bind("italicBtn", () => style({ type: "italic" }))
+bind("underlineBtn", () => style({ type: "underline" }))
+bind("clearFormatBtn", () => style({ type: "clearFormat" }))
+bind("alignLeftBtn", () => style({ type: "align", align: "left" }))
+bind("alignCenterBtn", () => style({ type: "align", align: "center" }))
+bind("alignRightBtn", () => style({ type: "align", align: "right" }))
+bind("findBtn", () => openFind())
+
 bind("fillBtn", () =>
-  vscode.postMessage({
-    type: "style",
-    payload: {
-      type: "fill",
-      color: (document.getElementById("fillColor") as HTMLInputElement).value,
-    },
+  style({
+    type: "fill",
+    color: (document.getElementById("fillColor") as HTMLInputElement).value,
   }),
 )
-bind("noFillBtn", () =>
-  vscode.postMessage({ type: "style", payload: { type: "clearFill" } }),
+bind("fontColorBtn", () =>
+  style({
+    type: "fontColor",
+    color: (document.getElementById("fontColor") as HTMLInputElement).value,
+  }),
 )
 bind("renameFileBtn", () => vscode.postMessage({ type: "renameFile" }))
 bind("renameSheetBtn", () => vscode.postMessage({ type: "renameSheet" }))

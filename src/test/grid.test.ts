@@ -8,6 +8,7 @@ import {
   getProcessedRows,
   ColumnFilter,
 } from "../grid"
+import { MATCH_LIMIT, findMatches, replaceInCell } from "../search"
 import {
   CellValue,
   coerceInput,
@@ -16,6 +17,7 @@ import {
   formatCellEdit,
   argbToHex,
   hexToArgb,
+  isEmptyStyle,
   sanitizeHexColor,
   toNumber,
 } from "../model"
@@ -342,5 +344,100 @@ describe("colour sanitising", () => {
     assert.equal(hexToArgb("#ffff00"), "FFFFFF00")
     assert.equal(hexToArgb("#fff"), "FFFFFFFF")
     assert.equal(hexToArgb("bogus"), undefined)
+  })
+})
+
+describe("find and replace", () => {
+  const searchRows: CellValue[][] = [
+    ["alpha", "Beta", 10],
+    ["gamma", "beta", 20],
+    ["ALPHA", null, { formula: "A1*2", result: 84 }],
+  ]
+
+  test("finds case-insensitively by default", () => {
+    const { matches } = findMatches(searchRows, { query: "alpha" })
+    assert.deepEqual(matches, [
+      { row: 0, col: 0 },
+      { row: 2, col: 0 },
+    ])
+  })
+
+  test("respects match case", () => {
+    const { matches } = findMatches(searchRows, { query: "alpha", matchCase: true })
+    assert.deepEqual(matches, [{ row: 0, col: 0 }])
+  })
+
+  test("whole-cell matching excludes substrings", () => {
+    assert.equal(findMatches(searchRows, { query: "bet" }).matches.length, 2)
+    assert.equal(
+      findMatches(searchRows, { query: "bet", wholeCell: true }).matches.length,
+      0,
+    )
+    assert.equal(
+      findMatches(searchRows, { query: "beta", wholeCell: true }).matches.length,
+      2,
+    )
+  })
+
+  test("searches numbers by their displayed text", () => {
+    assert.deepEqual(findMatches(searchRows, { query: "20" }).matches, [
+      { row: 1, col: 2 },
+    ])
+  })
+
+  test("searches formulas by their expression, not the cached result", () => {
+    assert.deepEqual(findMatches(searchRows, { query: "A1*2" }).matches, [
+      { row: 2, col: 2 },
+    ])
+    // 84 is the cached result and is not what the cell "says" when edited.
+    assert.equal(findMatches(searchRows, { query: "84" }).matches.length, 0)
+  })
+
+  test("an empty query matches nothing", () => {
+    assert.deepEqual(findMatches(searchRows, { query: "" }).matches, [])
+  })
+
+  test("replaces every occurrence within a cell", () => {
+    assert.equal(replaceInCell("a-a-a", { query: "a" }, "b"), "b-b-b")
+  })
+
+  test("replacement is literal, not a regex or a $-pattern", () => {
+    assert.equal(replaceInCell("a.c", { query: "." }, "X"), "aXc")
+    assert.equal(replaceInCell("price", { query: "price" }, "$&!"), "$&!")
+  })
+
+  test("whole-cell replace swaps the entire value", () => {
+    assert.equal(
+      replaceInCell("beta test", { query: "beta test", wholeCell: true }, "x"),
+      "x",
+    )
+  })
+
+  test("returns null when the cell does not match", () => {
+    assert.equal(replaceInCell("alpha", { query: "zzz" }, "x"), null)
+  })
+
+  test("replacing inside a formula keeps it a formula after coercion", () => {
+    const replaced = replaceInCell({ formula: "A1*2" }, { query: "A1" }, "B7")
+    assert.equal(replaced, "=B7*2")
+    assert.deepEqual(coerceInput(replaced!), { formula: "B7*2" })
+  })
+
+  test("caps runaway result sets", () => {
+    const many: CellValue[][] = Array.from({ length: MATCH_LIMIT + 50 }, () => ["x"])
+    const { matches, truncated } = findMatches(many, { query: "x" })
+    assert.equal(matches.length, MATCH_LIMIT)
+    assert.equal(truncated, true)
+  })
+})
+
+describe("style helpers", () => {
+  test("isEmptyStyle recognises styles worth dropping", () => {
+    assert.equal(isEmptyStyle(undefined), true)
+    assert.equal(isEmptyStyle({}), true)
+    assert.equal(isEmptyStyle({ bold: false }), true)
+    assert.equal(isEmptyStyle({ bold: true }), false)
+    assert.equal(isEmptyStyle({ align: "center" }), false)
+    assert.equal(isEmptyStyle({ italic: true }), false)
   })
 })

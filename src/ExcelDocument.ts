@@ -3,8 +3,15 @@ import * as path from "path"
 import * as vscode from "vscode"
 
 import { SheetModel, TableModel, parseFile } from "./fileParser"
-import { CellStyle, CellValue, getColumnLetter } from "./model"
+import { CellStyle, CellValue, getColumnLetter, isEmptyStyle } from "./model"
 import { DirtyState, dirtyKey, emptyDirtyState, writeFile } from "./fileWriter"
+import {
+  StructuralOp,
+  applyStructural,
+  invertStructural,
+  restoreRemoved,
+  shiftDirtyKeys,
+} from "./structural"
 
 export interface CellPatch {
   sheetIndex: number
@@ -39,17 +46,20 @@ export interface DocumentEdit {
   cells: CellPatch[]
   styles: StylePatch[]
   sheetNames: SheetNamePatch[]
+  /** Row/column insertions and removals, applied before the cell patches. */
+  structural: StructuralOp[]
 }
 
 export function emptyEdit(label: string): DocumentEdit {
-  return { label, cells: [], styles: [], sheetNames: [] }
+  return { label, cells: [], styles: [], sheetNames: [], structural: [] }
 }
 
 export function isEmptyEdit(edit: DocumentEdit): boolean {
   return (
     edit.cells.length === 0 &&
     edit.styles.length === 0 &&
-    edit.sheetNames.length === 0
+    edit.sheetNames.length === 0 &&
+    edit.structural.length === 0
   )
 }
 
@@ -73,6 +83,8 @@ export class ExcelDocument implements vscode.CustomDocument {
   public readonly onDidRevert = this._onDidRevert.event
 
   private _dirty: DirtyState = emptyDirtyState()
+  /** Structural changes still to be replayed onto the file on the next save. */
+  private _structuralLog: StructuralOp[] = []
   private _disposables: vscode.Disposable[] = []
   private _watcher: vscode.FileSystemWatcher | undefined
   private _savingUntil = 0
@@ -110,8 +122,13 @@ export class ExcelDocument implements vscode.CustomDocument {
     return (
       this._dirty.cells.size > 0 ||
       this._dirty.styles.size > 0 ||
-      this._dirty.sheetNames
+      this._dirty.sheetNames ||
+      this._structuralLog.length > 0
     )
+  }
+
+  public get structuralLog(): readonly StructuralOp[] {
+    return this._structuralLog
   }
 
   public get activeSheet(): SheetModel | undefined {
@@ -135,6 +152,7 @@ export class ExcelDocument implements vscode.CustomDocument {
     this._model = model
     this._patchSource = this.uri.fsPath
     this._dirty = emptyDirtyState()
+    this._structuralLog = []
     this._onDidRevert.fire()
     this._onDidChangeContent.fire()
   }
@@ -191,7 +209,7 @@ export class ExcelDocument implements vscode.CustomDocument {
     const sheet = this._model.sheets[patch.sheetIndex]
     if (!sheet) return
     const key = `${patch.row},${patch.col}`
-    if (style && Object.keys(style).length > 0) sheet.styles.set(key, { ...style })
+    if (!isEmptyStyle(style)) sheet.styles.set(key, { ...style })
     else sheet.styles.delete(key)
     this._dirty.styles.add(dirtyKey(patch.sheetIndex, patch.row, patch.col))
     if (patch.sheetIndex === this._model.sheetIndex) {
@@ -209,8 +227,90 @@ export class ExcelDocument implements vscode.CustomDocument {
     }
   }
 
+  /**
+   * Apply one structural operation and keep every outstanding coordinate valid.
+   *
+   * Style keys and dirty-cell keys shift by the same amount as the data, and
+   * the operation is appended to the replay log so the save performs the
+   * matching splice on the real worksheet.
+   */
+  private _applyStructural(op: StructuralOp): void {
+    const sheet = this._model.sheets[op.sheetIndex]
+    if (!sheet) return
+
+    const target = {
+      headers: sheet.headers,
+      rows: sheet.rows,
+      styles: sheet.styles,
+    }
+    const applied = applyStructural(target, op)
+    sheet.styles = target.styles
+
+    const axis =
+      op.kind === "insertRows" || op.kind === "deleteRows" ? "row" : "col"
+    const delta =
+      op.kind === "insertRows" || op.kind === "insertCols" ? op.count : -op.count
+
+    this._dirty.cells = shiftDirtyKeys(
+      this._dirty.cells,
+      op.sheetIndex,
+      axis,
+      op.at,
+      delta,
+    )
+    this._dirty.styles = shiftDirtyKeys(
+      this._dirty.styles,
+      op.sheetIndex,
+      axis,
+      op.at,
+      delta,
+    )
+
+    // Undoing a delete re-opens a blank band, so the restored values have to be
+    // written back explicitly or the file keeps empty rows there.
+    if (op.removedRows || op.removedHeaders || op.removedStyles) {
+      const restored = restoreRemoved(target, op)
+      for (const cell of restored.cells) {
+        this._dirty.cells.add(dirtyKey(op.sheetIndex, cell.row, cell.col))
+      }
+      for (const cell of restored.styles) {
+        this._dirty.styles.add(dirtyKey(op.sheetIndex, cell.row, cell.col))
+      }
+    }
+
+    this._structuralLog.push({
+      sheetIndex: op.sheetIndex,
+      kind: op.kind,
+      at: op.at,
+      count: op.count,
+    })
+
+    // A delete only discovers what it removed when it runs, so hand that back
+    // to the edit for the eventual undo.
+    if (applied.removedRows) op.removedRows = applied.removedRows
+    if (applied.removedHeaders) op.removedHeaders = applied.removedHeaders
+    if (applied.removedStyles) op.removedStyles = applied.removedStyles
+
+    this._syncActiveSheet()
+  }
+
+  /** Keep the model's convenience aliases pointing at the active sheet. */
+  private _syncActiveSheet(): void {
+    const sheet = this._model.sheets[this._model.sheetIndex]
+    if (!sheet) return
+    this._model.headers = sheet.headers
+    this._model.rows = sheet.rows
+    this._model.styles = sheet.styles
+  }
+
   private _applyEdit(edit: DocumentEdit, direction: "redo" | "undo"): void {
     const useAfter = direction === "redo"
+
+    // Redo lays out the structure first; undo unwinds it last, inverted.
+    if (useAfter) {
+      for (const op of edit.structural) this._applyStructural(op)
+    }
+
     for (const patch of edit.cells) {
       this._applyCell(patch, useAfter ? patch.after : patch.before)
     }
@@ -220,6 +320,13 @@ export class ExcelDocument implements vscode.CustomDocument {
     for (const patch of edit.sheetNames) {
       this._applySheetName(patch, useAfter ? patch.after : patch.before)
     }
+
+    if (!useAfter) {
+      for (let i = edit.structural.length - 1; i >= 0; i--) {
+        this._applyStructural(invertStructural(edit.structural[i]))
+      }
+    }
+
     this._onDidChangeContent.fire()
   }
 
@@ -288,10 +395,17 @@ export class ExcelDocument implements vscode.CustomDocument {
     // Suppress the watcher event our own write is about to produce.
     this._savingUntil = Date.now() + 1500
 
-    await writeFile(target.fsPath, this._model, this._dirty, this._patchSource)
+    await writeFile(
+      target.fsPath,
+      this._model,
+      this._dirty,
+      this._patchSource,
+      this._structuralLog,
+    )
 
     if (isInPlace) {
       this._dirty = emptyDirtyState()
+      this._structuralLog = []
       this._patchSource = target.fsPath
       try {
         this._model.mtimeMs = fs.statSync(target.fsPath).mtimeMs

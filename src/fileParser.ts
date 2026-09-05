@@ -119,6 +119,13 @@ function readCellStyle(cell: ExcelJS.Cell): CellStyle | undefined {
   const style: CellStyle = {}
 
   if (cell.font?.bold) style.bold = true
+  if (cell.font?.italic) style.italic = true
+  if (cell.font?.underline) style.underline = true
+
+  const horizontal = cell.alignment?.horizontal
+  if (horizontal === "left" || horizontal === "center" || horizontal === "right") {
+    style.align = horizontal
+  }
 
   const fill = cell.fill
   if (fill && fill.type === "pattern" && fill.pattern !== "none") {

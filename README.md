@@ -32,6 +32,8 @@ edit shows up in git as a one-line diff.
 ### Editing
 
 - Double-click, `F2`, `Enter`, or just start typing to edit a cell.
+- A **formula bar** shows the selected cell's reference and its true contents —
+  the formula, not the cached result — and edits commit with `Enter`.
 - Values keep their type: `42` is a number, `2026-01-15` is a date, `=A1+B1` is a
   formula, and identifiers such as `007` stay text.
 - Full keyboard navigation: arrows, `Tab`, `Enter`, `Page Up/Down`, `Home`/`End`,
@@ -39,7 +41,14 @@ edit shows up in git as a one-line diff.
 - Copy, cut and paste (`Ctrl+C` / `X` / `V`) interoperate with Excel and Sheets,
   including multi-line quoted cells. Pasting past the last row grows the sheet.
 - `Ctrl+Z` / `Ctrl+Y` use VS Code's own undo stack.
-- Bold and fill colour, applied across the whole selection.
+- Bold, italic, underline, text colour, fill colour and horizontal alignment,
+  all applied across the whole selection.
+- **Insert and delete rows and columns** from the right-click menu on a row
+  number or column header. Select several whole rows or columns first to act on
+  all of them at once.
+- **Find and replace** (`Ctrl+F`) with match-case, whole-cell, step-through
+  navigation (`F3`) and replace-all as a single undo step. Searching matches what
+  the cell editor shows, so a formula matches on its expression.
 
 ### Saving and safety
 
@@ -57,7 +66,8 @@ edit shows up in git as a one-line diff.
 
 ### Sorting and filtering
 
-- Click a header to cycle ascending → descending → unsorted.
+- Click a header to cycle ascending → descending → unsorted, or use the
+  right-click menu on a column header.
 - The filter menu offers three modes:
   - **By value** — searchable checklist of every distinct value in the column.
   - **By condition** — contains, starts/ends with, is empty, `>`, `>=`, `<`, `<=`,
@@ -83,7 +93,9 @@ of rows scroll smoothly.
   and re-save as `.xlsx`.
 - Formulas are preserved but not recalculated: editing a cell does not update
   formulas that depend on it until the file is reopened in Excel.
-- Inserting or deleting rows and columns.
+- Adding, deleting or reordering worksheets (renaming works).
+- Row and column changes are unavailable while a sort or filter is active,
+  because view order and sheet order would disagree; clear them first.
 
 ## Development
 
@@ -95,7 +107,7 @@ npm run watch
 Press `F5` in VS Code to launch the Extension Development Host.
 
 ```bash
-npm test        # 94 unit, round-trip and end-to-end tests
+npm test        # 151 unit, round-trip and end-to-end tests
 npm run lint
 npm run typecheck
 ```

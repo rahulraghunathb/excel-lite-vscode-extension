@@ -26,11 +26,29 @@ export type CellValue =
   | FormulaValue
   | HyperlinkValue
 
+export type HorizontalAlign = "left" | "center" | "right"
+
 /** Cell style information we round-trip through the UI. */
 export interface CellStyle {
   bold?: boolean
+  italic?: boolean
+  underline?: boolean
   bgColor?: string
   fontColor?: string
+  align?: HorizontalAlign
+}
+
+/** True when a style carries no formatting and can be dropped entirely. */
+export function isEmptyStyle(style: CellStyle | undefined): boolean {
+  if (!style) return true
+  return (
+    !style.bold &&
+    !style.italic &&
+    !style.underline &&
+    !style.bgColor &&
+    !style.fontColor &&
+    !style.align
+  )
 }
 
 export function isFormula(value: unknown): value is FormulaValue {

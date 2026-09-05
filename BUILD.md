@@ -55,7 +55,7 @@ They are type-checked separately, because only the webview may touch the DOM:
   npm run watch
   ```
 
-- **Tests** — 94 unit, round-trip and end-to-end tests:
+- **Tests** — 151 unit, round-trip and end-to-end tests:
 
   ```bash
   npm test
@@ -118,6 +118,9 @@ To install the extension without running it in a development host:
 - `src/model.ts` — cell value union, display formatting, input coercion, colour
   validation. Pure, no VS Code dependency.
 - `src/grid.ts` — filtering, sorting and aggregates. Pure, and unit tested directly.
+- `src/structural.ts` — row/column insertion and removal, including the index
+  shifting that keeps style keys and dirty-cell keys valid afterwards. Pure.
+- `src/search.ts` — find and replace, matching on the text the editor shows.
 - `src/fileParser.ts` / `src/fileWriter.ts` — parsing, and **patch-based** saving
   that preserves everything the model does not represent.
 - `src/ExcelDocument.ts` — the `CustomDocument`: dirty tracking, undo/redo patches,

@@ -73,6 +73,18 @@ function escapeAttr(text: string): string {
   return escapeHtml(text).replace(/"/g, "&quot;")
 }
 
+/** Find-and-replace highlighting for the current window. */
+function isMatch(row: number, col: number): string {
+  if (state.matches.length === 0) return ""
+  const currentMatch = state.currentMatch
+  if (currentMatch && currentMatch.row === row && currentMatch.col === col) {
+    return " match match-current"
+  }
+  return state.matches.some((m) => m.row === row && m.col === col)
+    ? " match"
+    : ""
+}
+
 function isSelected(row: number, col: number): boolean {
   for (const range of state.ranges) {
     if (
@@ -118,20 +130,26 @@ export function renderBody() {
       const style = state.windowStyles[`${viewRow},${col}`]
       let css = widthStyle(col)
       if (style?.bold) css += "font-weight:bold;"
+      if (style?.italic) css += "font-style:italic;"
+      if (style?.underline) css += "text-decoration:underline;"
+      if (style?.align) css += `text-align:${style.align};`
       // Colours are hex-validated in the extension host before they get here.
       if (style?.bgColor) css += `background-color:${style.bgColor};`
       if (style?.fontColor) css += `color:${style.fontColor};`
 
       const selected = isSelected(viewRow, col) ? " selected" : ""
+      const matched = isMatch(viewRow, col)
       const isCursor =
         state.cursor && state.cursor.r === viewRow && state.cursor.c === col
           ? " cursor"
           : ""
       const text = rowData[col] ?? ""
-      const numeric = text !== "" && !isNaN(Number(text)) ? " numeric" : ""
+      // An explicit alignment wins over the automatic numeric right-align.
+      const numeric =
+        !style?.align && text !== "" && !isNaN(Number(text)) ? " numeric" : ""
 
       parts.push(
-        `<td class="cell${selected}${isCursor}${numeric}" data-row="${viewRow}" data-col="${col}" style="${css}">` +
+        `<td class="cell${selected}${isCursor}${numeric}${matched}" data-row="${viewRow}" data-col="${col}" style="${css}">` +
           escapeHtml(text) +
           "</td>",
       )
@@ -201,6 +219,9 @@ export function refreshSelectionClasses() {
       "cursor",
       !!state.cursor && state.cursor.r === row && state.cursor.c === col,
     )
+    const matched = isMatch(row, col)
+    cell.classList.toggle("match", matched !== "")
+    cell.classList.toggle("match-current", matched.includes("match-current"))
   })
   updateHeaderSelectionState()
 }

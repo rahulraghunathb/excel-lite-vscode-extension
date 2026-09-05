@@ -2,6 +2,7 @@ import * as fs from "fs"
 import * as path from "path"
 import ExcelJS from "exceljs"
 import { TableModel, CsvDialect } from "./fileParser"
+import { StructuralOp } from "./structural"
 import {
   CellStyle,
   CellValue,
@@ -73,6 +74,9 @@ function toExcelValue(value: CellValue): ExcelJS.CellValue {
 function applyCellStyle(cell: ExcelJS.Cell, style: CellStyle | undefined) {
   const font: Partial<ExcelJS.Font> = { ...(cell.font || {}) }
   font.bold = !!style?.bold
+  font.italic = !!style?.italic
+  if (style?.underline) font.underline = true
+  else delete font.underline
 
   const fontArgb = style?.fontColor ? hexToArgb(style.fontColor) : undefined
   if (fontArgb) font.color = { argb: fontArgb }
@@ -90,6 +94,12 @@ function applyCellStyle(cell: ExcelJS.Cell, style: CellStyle | undefined) {
   } else if (cell.fill && cell.fill.type === "pattern") {
     cell.fill = { type: "pattern", pattern: "none" }
   }
+
+  // Preserve vertical alignment and wrapping; only horizontal is ours.
+  const alignment = { ...(cell.alignment || {}) }
+  if (style?.align) alignment.horizontal = style.align
+  else delete alignment.horizontal
+  cell.alignment = alignment
 }
 
 /** Locate a worksheet by the name it had on disk, falling back to position. */
@@ -105,6 +115,34 @@ function findWorksheet(
     workbook.worksheets[sheetIndex] ??
     undefined
   )
+}
+
+/**
+ * Perform the worksheet splice matching a model-level structural operation.
+ *
+ * Model row 0 is sheet row 2 (row 1 holds headers) and model column 0 is sheet
+ * column 1, hence the offsets.
+ */
+function applyStructuralToWorksheet(
+  worksheet: ExcelJS.Worksheet,
+  op: StructuralOp,
+) {
+  const blanks = Array.from({ length: op.count }, () => [] as unknown[])
+
+  switch (op.kind) {
+    case "insertRows":
+      worksheet.spliceRows(op.at + 2, 0, ...blanks)
+      break
+    case "deleteRows":
+      worksheet.spliceRows(op.at + 2, op.count)
+      break
+    case "insertCols":
+      worksheet.spliceColumns(op.at + 1, 0, ...blanks)
+      break
+    case "deleteCols":
+      worksheet.spliceColumns(op.at + 1, op.count)
+      break
+  }
 }
 
 /** Build a workbook from scratch (Save As from CSV, or a missing source). */
@@ -147,6 +185,7 @@ export async function writeExcel(
   model: TableModel,
   dirty: DirtyState,
   sourcePath?: string,
+  structural: readonly StructuralOp[] = [],
 ): Promise<void> {
   const base = sourcePath ?? model.filePath
   const baseExt = path.extname(base).toLowerCase()
@@ -158,6 +197,14 @@ export async function writeExcel(
   if (canPatch) {
     workbook = new ExcelJS.Workbook()
     await workbook.xlsx.readFile(base)
+
+    // Replay structural changes first so the sheet has the same shape as the
+    // model; every cell patch below is expressed in post-splice coordinates.
+    for (const op of structural) {
+      const worksheet = findWorksheet(workbook, model, op.sheetIndex)
+      if (!worksheet) continue
+      applyStructuralToWorksheet(worksheet, op)
+    }
 
     for (const key of dirty.cells) {
       const { sheetIndex, row, col } = parseDirtyKey(key)
@@ -251,10 +298,11 @@ export async function writeFile(
   model: TableModel,
   dirty: DirtyState,
   sourcePath?: string,
+  structural: readonly StructuralOp[] = [],
 ): Promise<void> {
   const ext = path.extname(targetPath).toLowerCase()
   if (ext === ".xlsx" || ext === ".xlsm") {
-    await writeExcel(targetPath, model, dirty, sourcePath)
+    await writeExcel(targetPath, model, dirty, sourcePath, structural)
     return
   }
   if (ext === ".csv" || ext === ".tsv") {

@@ -15,6 +15,27 @@ export interface InitPayload {
   isAutoSaveEnabled: boolean
   sort: SortState | null
   activeFilters: number[]
+  /** False while a sort or filter is active: row indices would be ambiguous. */
+  canEditStructure: boolean
+}
+
+export interface Match {
+  row: number
+  col: number
+}
+
+export interface FindResultsPayload {
+  query: string
+  matches: Match[]
+  truncated: boolean
+}
+
+export interface ActiveCellPayload {
+  row: number
+  col: number
+  ref: string
+  text: string
+  style: CellStyle | null
 }
 
 export interface WindowPayload {

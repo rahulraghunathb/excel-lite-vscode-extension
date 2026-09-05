@@ -2,6 +2,8 @@ import * as path from "path"
 import * as vscode from "vscode"
 
 import { ExcelDocument, DocumentEdit, emptyEdit } from "./ExcelDocument"
+import { StructuralKind } from "./structural"
+import { SearchOptions, findMatches, replaceInCell } from "./search"
 import {
   ColumnFilter,
   SelectionRange,
@@ -18,6 +20,8 @@ import {
   coerceInput,
   formatCellDisplay,
   formatCellEdit,
+  getColumnLetter,
+  isEmptyStyle,
   sanitizeHexColor,
 } from "./model"
 import { getHtmlShell } from "./webview"
@@ -131,6 +135,7 @@ export class ExcelPanel {
       this._postWindow(this._lastWindow.start, this._lastWindow.count)
     }
     this._postAggregates()
+    this._postActiveCell()
   }
 
   private _post(type: string, payload?: unknown) {
@@ -159,6 +164,7 @@ export class ExcelPanel {
       isAutoSaveEnabled: this._isAutoSaveEnabled,
       sort: this._sort,
       activeFilters,
+      canEditStructure: this._filters.size === 0 && !this._sort,
     })
   }
 
@@ -196,6 +202,33 @@ export class ExcelPanel {
     this._post("aggregates", computeAggregates(rows, this._selection))
   }
 
+  /** Feed the formula bar: the anchor cell's reference, text and formatting. */
+  private _postActiveCell() {
+    const anchor = this._selection[0]
+    if (!anchor) {
+      this._post("activeCell", null)
+      return
+    }
+
+    const viewRow = Math.min(anchor.startRow, anchor.endRow)
+    const col = Math.min(anchor.startCol, anchor.endCol)
+    const originalRow = this._toOriginalRow(viewRow)
+    if (originalRow === undefined) {
+      this._post("activeCell", null)
+      return
+    }
+
+    const value = this._document.getCell(this._sheetIndex, originalRow, col)
+    this._post("activeCell", {
+      row: viewRow,
+      col,
+      // Reference the underlying sheet row, so it matches what Excel shows.
+      ref: `${getColumnLetter(col)}${originalRow + 2}`,
+      text: formatCellEdit(value),
+      style: this._styleLookup(originalRow, col) ?? null,
+    })
+  }
+
   // ------------------------------------------------------------------ incoming
 
   private async _handleMessage(message: WebviewMessage) {
@@ -214,6 +247,7 @@ export class ExcelPanel {
           ? message.payload.ranges
           : []
         this._postAggregates()
+        this._postActiveCell()
         break
       case "requestEditValue":
         this._sendEditValue(message.payload)
@@ -232,6 +266,15 @@ export class ExcelPanel {
         break
       case "style":
         this._handleStyleChange(message.payload)
+        break
+      case "find":
+        this._handleFind(message.payload)
+        break
+      case "replace":
+        this._handleReplace(message.payload)
+        break
+      case "structural":
+        this._handleStructural(message.payload)
         break
       case "switchSheet":
         this._handleSwitchSheet(message.payload?.index)
@@ -347,29 +390,63 @@ export class ExcelPanel {
   }
 
   private _handleStyleChange(payload: {
-    type: "bold" | "fill" | "clearFill"
+    type:
+      | "bold"
+      | "italic"
+      | "underline"
+      | "fill"
+      | "fontColor"
+      | "clearFill"
+      | "clearFormat"
+      | "align"
     color?: string
+    align?: "left" | "center" | "right"
   }) {
     if (this._selection.length === 0) return
 
     const { originalIndices, rows } = this._processed()
-    const edit = emptyEdit(
-      payload.type === "bold" ? "Toggle bold" : "Change fill",
-    )
+    const LABELS: Record<string, string> = {
+      bold: "Toggle bold",
+      italic: "Toggle italic",
+      underline: "Toggle underline",
+      fill: "Change fill",
+      fontColor: "Change text colour",
+      clearFill: "Clear fill",
+      clearFormat: "Clear formatting",
+      align: "Change alignment",
+    }
+    const edit = emptyEdit(LABELS[payload.type] ?? "Change formatting")
     const seen = new Set<string>()
 
-    // Bold toggles as a group: if any selected cell is not bold, bold them all.
-    let makeBold = false
-    if (payload.type === "bold") {
-      makeBold = this._eachSelectedCell(rows, (viewRow, col) => {
+    // Toggles apply to the whole selection as a group: if any selected cell
+    // lacks the attribute, every cell gains it. Otherwise every cell loses it.
+    const toggles = ["bold", "italic", "underline"] as const
+    type Toggle = (typeof toggles)[number]
+    const isToggle = (toggles as readonly string[]).includes(payload.type)
+    let enable = false
+    if (isToggle) {
+      const attribute = payload.type as Toggle
+      enable = this._eachSelectedCell(rows, (viewRow, col) => {
         const originalRow = originalIndices[viewRow]
-        return !this._styleLookup(originalRow, col)?.bold
+        return !this._styleLookup(originalRow, col)?.[attribute]
       })
     }
 
     const color =
-      payload.type === "fill" ? sanitizeHexColor(payload.color) : undefined
-    if (payload.type === "fill" && !color) return
+      payload.type === "fill" || payload.type === "fontColor"
+        ? sanitizeHexColor(payload.color)
+        : undefined
+    if ((payload.type === "fill" || payload.type === "fontColor") && !color) return
+
+    // Clicking the active alignment button clears it, matching the toggles.
+    let align = payload.align
+    if (payload.type === "align" && align) {
+      const allAligned = !this._eachSelectedCell(rows, (viewRow, col) => {
+        const originalRow = originalIndices[viewRow]
+        return this._styleLookup(originalRow, col)?.align !== align
+      })
+      if (allAligned) align = undefined
+    }
 
     this._forEachSelectedCell(rows, (viewRow, col) => {
       const originalRow = originalIndices[viewRow]
@@ -379,20 +456,42 @@ export class ExcelPanel {
       seen.add(key)
 
       const before = this._styleLookup(originalRow, col)
-      const after: CellStyle = { ...(before ?? {}) }
+      let after: CellStyle = { ...(before ?? {}) }
 
-      if (payload.type === "bold") after.bold = makeBold
-      else if (payload.type === "clearFill") delete after.bgColor
-      else if (color) after.bgColor = color
+      switch (payload.type) {
+        case "bold":
+        case "italic":
+        case "underline":
+          after[payload.type as Toggle] = enable
+          break
+        case "fill":
+          after.bgColor = color
+          break
+        case "fontColor":
+          after.fontColor = color
+          break
+        case "clearFill":
+          delete after.bgColor
+          break
+        case "align":
+          if (align) after.align = align
+          else delete after.align
+          break
+        case "clearFormat":
+          after = {}
+          break
+      }
 
       if (!after.bold) delete after.bold
+      if (!after.italic) delete after.italic
+      if (!after.underline) delete after.underline
 
       edit.styles.push({
         sheetIndex: this._sheetIndex,
         row: originalRow,
         col,
         before: before ? { ...before } : undefined,
-        after: Object.keys(after).length > 0 ? after : undefined,
+        after: isEmptyStyle(after) ? undefined : after,
       })
     })
 
@@ -425,6 +524,135 @@ export class ExcelPanel {
       if (!result && predicate(row, col)) result = true
     })
     return result
+  }
+
+
+  /**
+   * Insert or delete rows/columns around the current selection.
+   *
+   * Row indices arrive in view coordinates. Sorting or filtering makes the view
+   * order differ from the sheet order, so a structural change is only meaningful
+   * against an unfiltered, unsorted view.
+   */
+
+  // -------------------------------------------------------------- find/replace
+
+  private _searchOptions(payload: any): SearchOptions {
+    return {
+      query: String(payload?.query ?? ""),
+      matchCase: !!payload?.matchCase,
+      wholeCell: !!payload?.wholeCell,
+    }
+  }
+
+  /** Search the visible rows, so filtered-out cells are never navigated to. */
+  private _handleFind(payload: any) {
+    const options = this._searchOptions(payload)
+    const { rows } = this._processed()
+    const { matches, truncated } = findMatches(rows, options)
+    this._post("findResults", { matches, truncated, query: options.query })
+  }
+
+  private _handleReplace(payload: any) {
+    const options = this._searchOptions(payload)
+    if (options.query === "") return
+
+    const replacement = String(payload?.replacement ?? "")
+    const all = !!payload?.all
+    const { rows, originalIndices } = this._processed()
+
+    const targets: { row: number; col: number }[] = all
+      ? findMatches(rows, options).matches
+      : Number.isInteger(payload?.row) && Number.isInteger(payload?.col)
+        ? [{ row: payload.row, col: payload.col }]
+        : []
+
+    const edit = emptyEdit(all ? "Replace all" : "Replace")
+    for (const target of targets) {
+      const originalRow = originalIndices[target.row]
+      if (originalRow === undefined) continue
+
+      const before = this._document.getCell(this._sheetIndex, originalRow, target.col)
+      const text = replaceInCell(before, options, replacement)
+      if (text === null) continue
+
+      const after = coerceInput(text)
+      if (formatCellEdit(before) === formatCellEdit(after)) continue
+      edit.cells.push({
+        sheetIndex: this._sheetIndex,
+        row: originalRow,
+        col: target.col,
+        before,
+        after,
+      })
+    }
+
+    if (edit.cells.length === 0) {
+      this._post("replaceDone", { replaced: 0 })
+      return
+    }
+
+    this._commit(edit)
+    this._post("replaceDone", { replaced: edit.cells.length })
+  }
+
+  private _handleStructural(payload: {
+    kind: StructuralKind
+    at?: number
+    count?: number
+  }) {
+    const kind = payload?.kind
+    if (
+      kind !== "insertRows" &&
+      kind !== "deleteRows" &&
+      kind !== "insertCols" &&
+      kind !== "deleteCols"
+    ) {
+      return
+    }
+
+    const isRowOp = kind === "insertRows" || kind === "deleteRows"
+
+    if (isRowOp && (this._filters.size > 0 || this._sort)) {
+      vscode.window.showWarningMessage(
+        "Clear the sort and filters before inserting or deleting rows.",
+      )
+      return
+    }
+
+    const sheet = this._document.activeSheet
+    if (!sheet) return
+
+    const limit = isRowOp ? sheet.rows.length : sheet.headers.length
+    const at = Math.max(0, Math.min(Number(payload.at) || 0, limit))
+    const count = Math.max(1, Number(payload.count) || 1)
+
+    if (kind === "deleteRows" || kind === "deleteCols") {
+      if (at >= limit) return
+      // Never leave a sheet with no columns at all.
+      if (kind === "deleteCols" && count >= sheet.headers.length) {
+        vscode.window.showWarningMessage("A sheet must keep at least one column.")
+        return
+      }
+    }
+
+    const edit = emptyEdit(
+      {
+        insertRows: "Insert rows",
+        deleteRows: "Delete rows",
+        insertCols: "Insert columns",
+        deleteCols: "Delete columns",
+      }[kind],
+    )
+    edit.structural.push({
+      sheetIndex: this._sheetIndex,
+      kind,
+      at,
+      count: Math.min(count, kind.startsWith("delete") ? limit - at : count),
+    })
+
+    this._selection = []
+    this._commit(edit)
   }
 
   private _handleSwitchSheet(index?: number) {
