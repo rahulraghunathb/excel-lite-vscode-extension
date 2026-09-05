@@ -1,6 +1,25 @@
-import * as vscode from "vscode"
 import * as path from "path"
-import { TableModel, CellStyle } from "./fileParser"
+import * as vscode from "vscode"
+
+import { ExcelDocument, DocumentEdit, emptyEdit } from "./ExcelDocument"
+import {
+  ColumnFilter,
+  SelectionRange,
+  SortState,
+  computeAggregates,
+  cycleSort,
+  getColumnColors,
+  getColumnValues,
+  getProcessedRows,
+} from "./grid"
+import {
+  CellStyle,
+  CellValue,
+  coerceInput,
+  formatCellDisplay,
+  formatCellEdit,
+  sanitizeHexColor,
+} from "./model"
 import { getHtmlShell } from "./webview"
 
 interface WebviewMessage {
@@ -8,75 +27,63 @@ interface WebviewMessage {
   payload?: any
 }
 
+/** Rows sent to the webview per request. */
+const WINDOW_LIMIT = 400
+
 /**
- * ExcelPanel handles the custom editor webview panel and its data/logic.
+ * Drives one webview for one document.
+ *
+ * The panel owns only view state (sort, filters, selection); all data lives in
+ * the ExcelDocument, so several tabs never fight over a single static instance
+ * the way the old `currentPanel` singleton did.
  */
 export class ExcelPanel {
-  public static currentPanel: ExcelPanel | undefined
-  private readonly _panel: vscode.WebviewPanel
-  private readonly _extensionUri: vscode.Uri
-  private _tableModel: TableModel
-  private _disposables: vscode.Disposable[] = []
+  private readonly _disposables: vscode.Disposable[] = []
 
-  // State
-  private _sortColumn: number = -1
-  private _sortDirection: "asc" | "desc" | "none" = "none"
-  private _filters: Map<
-    number,
-    { operator: string; value: string | string[] }
-  > = new Map()
-  private _styles: Map<string, CellStyle>
-  private _selectedRanges: {
-    startRow: number
-    startCol: number
-    endRow: number
-    endCol: number
-  }[] = []
-  private _isAutoSaveEnabled: boolean = false
-  private _clipboard: any[][] | null = null
-  private _history: { rows: any[][]; styles: Map<string, CellStyle> }[] = []
-  private _maxHistory = 50
+  private _sort: SortState | null = null
+  private _filters = new Map<number, ColumnFilter>()
+  private _selection: SelectionRange[] = []
+  private _isAutoSaveEnabled = false
+  private _disposed = false
 
-  public static createOrShow(extensionUri: vscode.Uri, tableModel: TableModel) {
-    const column = vscode.window.activeTextEditor
-      ? vscode.window.activeTextEditor.viewColumn
-      : undefined
-
-    if (ExcelPanel.currentPanel) {
-      ExcelPanel.currentPanel._panel.reveal(column)
-      ExcelPanel.currentPanel.updateTableModel(tableModel)
-      return ExcelPanel.currentPanel
-    }
-
-    const panel = vscode.window.createWebviewPanel(
-      "excelLiteViewer",
-      `Excel Lite: ${path.basename(tableModel.filePath)}`,
-      column || vscode.ViewColumn.One,
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(extensionUri, "media")],
-      },
-    )
-
-    ExcelPanel.currentPanel = new ExcelPanel(panel, extensionUri, tableModel)
-    return ExcelPanel.currentPanel
-  }
+  /** Bumped whenever the visible row set changes, so stale windows are ignored. */
+  private _rowVersion = 0
+  /** Last window the webview asked for, re-served whenever the data changes. */
+  private _lastWindow: { start: number; count: number } | null = null
+  private _processedCache: {
+    version: number
+    rows: CellValue[][]
+    originalIndices: number[]
+  } | null = null
 
   constructor(
-    panel: vscode.WebviewPanel,
-    extensionUri: vscode.Uri,
-    tableModel: TableModel,
+    private readonly _document: ExcelDocument,
+    private readonly _panel: vscode.WebviewPanel,
+    private readonly _extensionUri: vscode.Uri,
   ) {
-    this._panel = panel
-    this._extensionUri = extensionUri
-    this._tableModel = tableModel
-    this._styles = new Map(tableModel.styles)
+    this._panel.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [vscode.Uri.joinPath(_extensionUri, "dist")],
+    }
 
-    // IMPORTANT: Attach message listener BEFORE setting HTML to avoid missing the 'ready' signal
+    // Attached before the HTML is set so the webview's "ready" cannot be missed.
     this._panel.webview.onDidReceiveMessage(
-      (message: WebviewMessage) => {
-        void this._handleMessage(message)
+      (message: WebviewMessage) => void this._handleMessage(message),
+      null,
+      this._disposables,
+    )
+
+    this._document.onDidChangeContent(
+      () => this._invalidateAndRefresh(),
+      null,
+      this._disposables,
+    )
+
+    this._document.onDidRevert(
+      () => {
+        this._filters.clear()
+        this._sort = null
+        this._selection = []
       },
       null,
       this._disposables,
@@ -84,34 +91,135 @@ export class ExcelPanel {
 
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables)
 
-    // Load static shell
-    this._panel.webview.html = getHtmlShell()
-
-    ExcelPanel.currentPanel = this
+    this._panel.webview.html = getHtmlShell(this._panel.webview, this._extensionUri)
   }
 
-  public updateTableModel(tableModel: TableModel) {
-    this._tableModel = tableModel
-    this._styles = new Map(tableModel.styles)
-    this._panel.title = `Excel Lite: ${path.basename(tableModel.filePath)}`
-    this._update()
+  // ------------------------------------------------------------------ plumbing
+
+  private get _sheetIndex(): number {
+    return this._document.model.sheetIndex
   }
+
+  private get _allRows(): CellValue[][] {
+    return this._document.activeSheet?.rows ?? []
+  }
+
+  private _styleLookup = (row: number, col: number): CellStyle | undefined =>
+    this._document.getStyle(this._sheetIndex, row, col)
+
+  private _processed() {
+    if (this._processedCache?.version === this._rowVersion) {
+      return this._processedCache
+    }
+    const result = getProcessedRows(
+      this._allRows,
+      this._filters,
+      this._sort,
+      this._styleLookup,
+    )
+    this._processedCache = { version: this._rowVersion, ...result }
+    return this._processedCache
+  }
+
+  private _invalidateAndRefresh() {
+    this._rowVersion++
+    this._processedCache = null
+    this._postInit()
+    // Push the refreshed rows straight away rather than waiting for the
+    // webview to notice the new version and ask again.
+    if (this._lastWindow) {
+      this._postWindow(this._lastWindow.start, this._lastWindow.count)
+    }
+    this._postAggregates()
+  }
+
+  private _post(type: string, payload?: unknown) {
+    if (this._disposed) return
+    void this._panel.webview.postMessage({ type, payload })
+  }
+
+  // ------------------------------------------------------------------ outgoing
+
+  private _postInit() {
+    const model = this._document.model
+    const { rows } = this._processed()
+
+    const activeFilters: number[] = []
+    this._filters.forEach((_, col) => activeFilters.push(col))
+
+    this._post("init", {
+      headers: model.headers,
+      totalRows: rows.length,
+      unfilteredRows: this._allRows.length,
+      rowVersion: this._rowVersion,
+      sheets: model.sheets.map((sheet, index) => ({ name: sheet.name, index })),
+      sheetIndex: model.sheetIndex,
+      sheetName: model.sheetName,
+      fileName: path.basename(model.filePath),
+      isAutoSaveEnabled: this._isAutoSaveEnabled,
+      sort: this._sort,
+      activeFilters,
+    })
+  }
+
+  /** Serve one window of rows; the webview never holds the whole sheet. */
+  private _postWindow(start: number, count: number) {
+    this._lastWindow = { start, count }
+    const { rows, originalIndices } = this._processed()
+    const from = Math.max(0, Math.min(start, rows.length))
+    const to = Math.min(rows.length, from + Math.min(count, WINDOW_LIMIT))
+
+    const windowRows: string[][] = []
+    const styles: Record<string, CellStyle> = {}
+
+    for (let index = from; index < to; index++) {
+      windowRows.push(rows[index].map((cell) => formatCellDisplay(cell)))
+      const originalRow = originalIndices[index]
+      for (let col = 0; col < rows[index].length; col++) {
+        const style = this._styleLookup(originalRow, col)
+        // Keyed by view row so the webview needs no index arithmetic.
+        if (style) styles[`${index},${col}`] = style
+      }
+    }
+
+    this._post("window", {
+      start: from,
+      rows: windowRows,
+      styles,
+      originalIndices: originalIndices.slice(from, to),
+      rowVersion: this._rowVersion,
+    })
+  }
+
+  private _postAggregates() {
+    const { rows } = this._processed()
+    this._post("aggregates", computeAggregates(rows, this._selection))
+  }
+
+  // ------------------------------------------------------------------ incoming
 
   private async _handleMessage(message: WebviewMessage) {
-    console.log(`[Excel Lite] Received message: ${message.type}`)
     switch (message.type) {
       case "ready":
-        this._update()
+        this._postInit()
+        break
+      case "requestWindow":
+        this._postWindow(
+          Number(message.payload?.start) || 0,
+          Number(message.payload?.count) || 100,
+        )
         break
       case "selection":
-        if (Array.isArray(message.payload?.ranges)) {
-          this._selectedRanges = message.payload.ranges
-        } else if (message.payload) {
-          this._selectedRanges = [message.payload]
-        } else {
-          this._selectedRanges = []
-        }
-        this._updateAggregates()
+        this._selection = Array.isArray(message.payload?.ranges)
+          ? message.payload.ranges
+          : []
+        this._postAggregates()
+        break
+      case "requestEditValue":
+        this._sendEditValue(message.payload)
+        break
+      case "edit":
+        this._handleCellEdit(message.payload)
         break
       case "sort":
         this._handleSort(message.payload)
@@ -119,11 +227,11 @@ export class ExcelPanel {
       case "filter":
         this._handleFilter(message.payload)
         break
+      case "requestFilterOptions":
+        this._sendFilterOptions(Number(message.payload?.column))
+        break
       case "style":
         this._handleStyleChange(message.payload)
-        break
-      case "undo":
-        this._undo()
         break
       case "switchSheet":
         this._handleSwitchSheet(message.payload?.index)
@@ -134,141 +242,241 @@ export class ExcelPanel {
       case "renameSheet":
         await this._handleRenameSheet(message.payload?.index)
         break
-      case "edit":
-        this._handleCellEdit(message.payload)
-        break
-      case "autoSaveToggle":
-        this._isAutoSaveEnabled = message.payload
-        break
       case "clipboard":
         await this._handleClipboard(message.payload)
         break
+      case "undo":
+        await vscode.commands.executeCommand("undo")
+        break
+      case "redo":
+        await vscode.commands.executeCommand("redo")
+        break
+      case "save":
+        await vscode.commands.executeCommand("workbench.action.files.save")
+        break
+      case "autoSaveToggle":
+        this._isAutoSaveEnabled = !!message.payload
+        break
       case "error":
-        console.error(`[Excel Lite Webview Error] ${message.payload?.message}`, message.payload)
-        vscode.window.showErrorMessage(`Excel Lite Webview Error: ${message.payload?.message}`)
+        console.error("[Excel Lite] webview error", message.payload)
         break
     }
   }
 
-  private _handleSort(
-    payload: number | { column: number; direction?: string },
-  ) {
-    const column = typeof payload === "number" ? payload : payload.column
-    const direction =
-      typeof payload === "number" ? undefined : payload.direction || undefined
-    console.log(`[Excel Lite] Sorting column: ${column}`)
-    if (direction) {
-      this._sortColumn = column
-      this._sortDirection =
-        direction === "asc" || direction === "desc" ? direction : "none"
-    } else if (this._sortColumn === column) {
-      if (this._sortDirection === "none") this._sortDirection = "asc"
-      else if (this._sortDirection === "asc") this._sortDirection = "desc"
-      else this._sortDirection = "none"
-    } else {
-      this._sortColumn = column
-      this._sortDirection = "asc"
-    }
-    this._update()
+  /** Resolve a view row to its index in the underlying sheet. */
+  private _toOriginalRow(viewRow: number): number | undefined {
+    return this._processed().originalIndices[viewRow]
   }
 
-  private _handleFilter(payload: {
+  private _sendEditValue(payload: { row: number; col: number }) {
+    const originalRow = this._toOriginalRow(payload?.row)
+    if (originalRow === undefined) return
+    const value = this._document.getCell(this._sheetIndex, originalRow, payload.col)
+    this._post("editValue", {
+      row: payload.row,
+      col: payload.col,
+      text: formatCellEdit(value),
+    })
+  }
+
+  private _handleCellEdit(payload: { row: number; col: number; value: string }) {
+    const originalRow = this._toOriginalRow(payload?.row)
+    if (originalRow === undefined) return
+
+    const next = coerceInput(String(payload.value ?? ""))
+    const before = this._document.getCell(this._sheetIndex, originalRow, payload.col)
+    if (formatCellEdit(before) === formatCellEdit(next)) return
+
+    const edit = emptyEdit("Edit cell")
+    edit.cells.push({
+      sheetIndex: this._sheetIndex,
+      row: originalRow,
+      col: payload.col,
+      before,
+      after: next,
+    })
+    this._commit(edit)
+  }
+
+  private _handleSort(payload: {
     column: number
-    operator: string
-    value?: string | string[]
+    direction?: string
+    byColor?: boolean
   }) {
-    console.log(`[Excel Lite] Filtering column: ${payload.column}`)
-    const isEmptyArray =
-      Array.isArray(payload.value) && payload.value.length === 0
-    const normalizedValue = Array.isArray(payload.value)
-      ? payload.value
-      : (payload.value ?? "")
-    if (
-      (normalizedValue === "" || isEmptyArray) &&
-      payload.operator !== "clear"
-    )
-      this._filters.delete(payload.column)
-    else if (payload.operator === "clear") this._filters.delete(payload.column)
-    else
-      this._filters.set(payload.column, {
-        operator: payload.operator,
-        value: normalizedValue,
-      })
-    this._update()
+    const column = Number(payload?.column)
+    if (!Number.isInteger(column) || column < 0) return
+
+    if (payload?.byColor) {
+      this._sort = { column, direction: "asc", byColor: true }
+    } else if (payload?.direction) {
+      const direction = payload.direction
+      this._sort =
+        direction === "asc" || direction === "desc"
+          ? { column, direction }
+          : { column, direction: "none" }
+    } else {
+      this._sort = cycleSort(this._sort, column)
+    }
+
+    this._invalidateAndRefresh()
   }
 
-  private _handleCellEdit(payload: {
-    row: number
-    col: number
-    value: string
-  }) {
-    const { originalIndices } = this._getProcessedRows()
-    const realRowIndex = originalIndices[payload.row]
-    if (realRowIndex !== undefined) {
-      this._pushHistory()
-      this._tableModel.rows[realRowIndex][payload.col] = payload.value
-      this._commitActiveSheet()
-      this._triggerAutoSave()
-      this._update()
-    }
+  private _handleFilter(payload: { column: number; filter?: ColumnFilter }) {
+    const column = Number(payload?.column)
+    if (!Number.isInteger(column)) return
+
+    if (!payload.filter) this._filters.delete(column)
+    else this._filters.set(column, payload.filter)
+
+    this._selection = []
+    this._invalidateAndRefresh()
+  }
+
+  /**
+   * Options for the filter popup, derived from every row in the column rather
+   * than the visible ones so a filtered-out value can still be re-selected.
+   */
+  private _sendFilterOptions(column: number) {
+    if (!Number.isInteger(column)) return
+    this._post("filterOptions", {
+      column,
+      values: getColumnValues(this._allRows, column),
+      colors: getColumnColors(this._allRows.length, column, this._styleLookup),
+      current: this._filters.get(column) ?? null,
+    })
   }
 
   private _handleStyleChange(payload: {
-    type: "bold" | "highlight" | "fill" | "clearFill"
+    type: "bold" | "fill" | "clearFill"
     color?: string
   }) {
-    if (this._selectedRanges.length === 0) return
-    this._pushHistory()
-    const { originalIndices } = this._getProcessedRows()
+    if (this._selection.length === 0) return
 
-    this._selectedRanges.forEach((range) => {
-      for (let row = range.startRow; row <= range.endRow; row++) {
-        const realRow = originalIndices[row]
-        if (realRow === undefined) continue
-        for (let col = range.startCol; col <= range.endCol; col++) {
-          const key = `${realRow},${col}`
-          const existing = this._styles.get(key) || {}
-          if (payload.type === "bold") existing.bold = !existing.bold
-          else if (payload.type === "clearFill") delete existing.bgColor
-          else if (
-            (payload.type === "highlight" || payload.type === "fill") &&
-            payload.color
-          )
-            existing.bgColor = payload.color
-          this._styles.set(key, existing)
-        }
-      }
+    const { originalIndices, rows } = this._processed()
+    const edit = emptyEdit(
+      payload.type === "bold" ? "Toggle bold" : "Change fill",
+    )
+    const seen = new Set<string>()
+
+    // Bold toggles as a group: if any selected cell is not bold, bold them all.
+    let makeBold = false
+    if (payload.type === "bold") {
+      makeBold = this._eachSelectedCell(rows, (viewRow, col) => {
+        const originalRow = originalIndices[viewRow]
+        return !this._styleLookup(originalRow, col)?.bold
+      })
+    }
+
+    const color =
+      payload.type === "fill" ? sanitizeHexColor(payload.color) : undefined
+    if (payload.type === "fill" && !color) return
+
+    this._forEachSelectedCell(rows, (viewRow, col) => {
+      const originalRow = originalIndices[viewRow]
+      if (originalRow === undefined) return
+      const key = `${originalRow},${col}`
+      if (seen.has(key)) return
+      seen.add(key)
+
+      const before = this._styleLookup(originalRow, col)
+      const after: CellStyle = { ...(before ?? {}) }
+
+      if (payload.type === "bold") after.bold = makeBold
+      else if (payload.type === "clearFill") delete after.bgColor
+      else if (color) after.bgColor = color
+
+      if (!after.bold) delete after.bold
+
+      edit.styles.push({
+        sheetIndex: this._sheetIndex,
+        row: originalRow,
+        col,
+        before: before ? { ...before } : undefined,
+        after: Object.keys(after).length > 0 ? after : undefined,
+      })
     })
-    this._triggerAutoSave()
-    this._update()
+
+    this._commit(edit)
+  }
+
+  private _forEachSelectedCell(
+    rows: CellValue[][],
+    visit: (viewRow: number, col: number) => void,
+  ) {
+    const width = this._document.model.headers.length
+    for (const range of this._selection) {
+      const startRow = Math.max(0, Math.min(range.startRow, range.endRow))
+      const endRow = Math.min(rows.length - 1, Math.max(range.startRow, range.endRow))
+      const startCol = Math.max(0, Math.min(range.startCol, range.endCol))
+      const endCol = Math.min(width - 1, Math.max(range.startCol, range.endCol))
+      for (let row = startRow; row <= endRow; row++) {
+        for (let col = startCol; col <= endCol; col++) visit(row, col)
+      }
+    }
+  }
+
+  /** True when `predicate` holds for at least one selected cell. */
+  private _eachSelectedCell(
+    rows: CellValue[][],
+    predicate: (viewRow: number, col: number) => boolean,
+  ): boolean {
+    let result = false
+    this._forEachSelectedCell(rows, (row, col) => {
+      if (!result && predicate(row, col)) result = true
+    })
+    return result
+  }
+
+  private _handleSwitchSheet(index?: number) {
+    const model = this._document.model
+    if (typeof index !== "number" || !model.sheets[index]) return
+    if (index === model.sheetIndex) return
+
+    const sheet = model.sheets[index]
+    model.sheetIndex = index
+    model.sheetName = sheet.name
+    model.headers = sheet.headers
+    model.rows = sheet.rows
+    model.styles = sheet.styles
+
+    this._filters.clear()
+    this._sort = null
+    this._selection = []
+    this._invalidateAndRefresh()
   }
 
   private async _handleRenameFile() {
-    const oldPath = this._tableModel.filePath
+    const oldPath = this._document.model.filePath
     const oldBase = path.basename(oldPath)
     const ext = path.extname(oldPath)
+
+    if (this._document.hasUnsavedChanges) {
+      vscode.window.showWarningMessage(
+        "Save your changes before renaming this file.",
+      )
+      return
+    }
+
     const newName = await vscode.window.showInputBox({
       prompt: "Rename file",
       value: oldBase,
       validateInput: (value) => {
         if (!value || !value.trim()) return "File name cannot be empty"
-        if (path.extname(value) !== ext)
+        if (/[\\/:*?"<>|]/.test(value)) return "File name contains invalid characters"
+        if (path.extname(value).toLowerCase() !== ext.toLowerCase()) {
           return `File extension must stay as ${ext}`
+        }
         return null
       },
     })
     if (!newName || newName === oldBase) return
 
-    const newPath = path.join(path.dirname(oldPath), newName)
+    const newUri = vscode.Uri.file(path.join(path.dirname(oldPath), newName))
     try {
-      await vscode.workspace.fs.rename(
-        vscode.Uri.file(oldPath),
-        vscode.Uri.file(newPath),
-        { overwrite: false },
-      )
-      this._tableModel.filePath = newPath
-      this._panel.title = `Excel Lite: ${path.basename(newPath)}`
-      this._update()
+      // workspace.fs.rename moves the open editor with the file.
+      await vscode.workspace.fs.rename(this._document.uri, newUri, {
+        overwrite: false,
+      })
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Unknown error"
       vscode.window.showErrorMessage(`Failed to rename file: ${msg}`)
@@ -276,288 +484,269 @@ export class ExcelPanel {
   }
 
   private async _handleRenameSheet(index?: number) {
-    const sheetIndex =
-      typeof index === "number" ? index : this._tableModel.sheetIndex
-    const currentName =
-      this._tableModel.sheets[sheetIndex]?.name || this._tableModel.sheetName
+    const model = this._document.model
+    const sheetIndex = typeof index === "number" ? index : model.sheetIndex
+    const sheet = model.sheets[sheetIndex]
+    if (!sheet) return
+
     const newName = await vscode.window.showInputBox({
       prompt: "Rename sheet",
-      value: currentName,
+      value: sheet.name,
       validateInput: (value) => {
-        if (!value || !value.trim()) return "Sheet name cannot be empty"
+        const trimmed = value?.trim() ?? ""
+        if (!trimmed) return "Sheet name cannot be empty"
+        if (trimmed.length > 31) return "Sheet names are limited to 31 characters"
+        if (/[\\/*?:[\]]/.test(trimmed)) {
+          return "Sheet names cannot contain \\ / * ? : [ ]"
+        }
+        const clash = model.sheets.some(
+          (other, i) => i !== sheetIndex && other.name === trimmed,
+        )
+        if (clash) return "Another sheet already has that name"
         return null
       },
     })
-    if (!newName || newName === currentName) return
-    const sheet = this._tableModel.sheets[sheetIndex]
-    if (sheet) sheet.name = newName
-    if (sheetIndex === this._tableModel.sheetIndex) {
-      this._tableModel.sheetName = newName
+    if (!newName || newName === sheet.name) return
+
+    const edit = emptyEdit("Rename sheet")
+    edit.sheetNames.push({
+      sheetIndex,
+      before: sheet.name,
+      after: newName.trim(),
+    })
+    this._commit(edit)
+  }
+
+  // ----------------------------------------------------------------- clipboard
+
+  /** Parse Excel/Sheets clipboard TSV, honouring quoted multi-line cells. */
+  private _parseClipboard(text: string): string[][] {
+    const rows: string[][] = []
+    let row: string[] = []
+    let field = ""
+    let inQuotes = false
+
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i]
+
+      if (inQuotes) {
+        if (char === '"') {
+          if (text[i + 1] === '"') {
+            field += '"'
+            i++
+          } else inQuotes = false
+        } else field += char
+        continue
+      }
+
+      if (char === '"' && field === "") inQuotes = true
+      else if (char === "\t") {
+        row.push(field)
+        field = ""
+      } else if (char === "\n" || char === "\r") {
+        if (char === "\r" && text[i + 1] === "\n") i++
+        row.push(field)
+        rows.push(row)
+        row = []
+        field = ""
+      } else field += char
     }
-    this._update()
-    this._triggerAutoSave()
+
+    if (field !== "" || row.length > 0) {
+      row.push(field)
+      rows.push(row)
+    }
+
+    // A trailing newline produces one empty row; that is the terminator.
+    if (rows.length > 1) {
+      const last = rows[rows.length - 1]
+      if (last.length === 1 && last[0] === "") rows.pop()
+    }
+
+    return rows
   }
 
   private async _handleClipboard(payload: {
-    action: "copy" | "cut" | "paste"
+    action: "copy" | "cut" | "paste" | "clear"
   }) {
-    if (this._selectedRanges.length === 0) return
-    const { rows, originalIndices } = this._getProcessedRows()
-    const selection = this._selectedRanges[0]
+    if (payload.action === "paste") {
+      await this._paste()
+      return
+    }
+    if (payload.action === "clear") {
+      this._clearSelection()
+      return
+    }
+    await this._copyOrCut(payload.action === "cut")
+  }
 
-    if (payload.action === "copy" || payload.action === "cut") {
-      const data: any[][] = []
-      for (let r = selection.startRow; r <= selection.endRow; r++) {
-        const rowData: any[] = []
-        for (let c = selection.startCol; c <= selection.endCol; c++) {
-          rowData.push(rows[r][c])
-          if (payload.action === "cut") {
-            const realRow = originalIndices[r]
-            this._tableModel.rows[realRow][c] = ""
+  /** Blank every selected cell without touching the clipboard. */
+  private _clearSelection() {
+    if (this._selection.length === 0) return
+    const { rows, originalIndices } = this._processed()
+    const edit = emptyEdit("Clear cells")
+    const seen = new Set<string>()
+
+    this._forEachSelectedCell(rows, (viewRow, col) => {
+      const originalRow = originalIndices[viewRow]
+      if (originalRow === undefined) return
+      const key = `${originalRow},${col}`
+      if (seen.has(key)) return
+      seen.add(key)
+
+      const before = this._document.getCell(this._sheetIndex, originalRow, col)
+      if (before === null) return
+      edit.cells.push({
+        sheetIndex: this._sheetIndex,
+        row: originalRow,
+        col,
+        before,
+        after: null,
+      })
+    })
+
+    this._commit(edit)
+  }
+
+  private async _copyOrCut(isCut: boolean) {
+    if (this._selection.length === 0) return
+    const { rows, originalIndices } = this._processed()
+
+    // Copy the bounding box of every selected range, so a multi-range
+    // selection exports as one rectangle instead of only its first range.
+    let minRow = Infinity
+    let maxRow = -Infinity
+    let minCol = Infinity
+    let maxCol = -Infinity
+    this._forEachSelectedCell(rows, (row, col) => {
+      minRow = Math.min(minRow, row)
+      maxRow = Math.max(maxRow, row)
+      minCol = Math.min(minCol, col)
+      maxCol = Math.max(maxCol, col)
+    })
+    if (!Number.isFinite(minRow)) return
+
+    const selected = new Set<string>()
+    this._forEachSelectedCell(rows, (row, col) => selected.add(`${row},${col}`))
+
+    const lines: string[] = []
+    const edit = emptyEdit("Cut")
+
+    for (let row = minRow; row <= maxRow; row++) {
+      const fields: string[] = []
+      for (let col = minCol; col <= maxCol; col++) {
+        const inSelection = selected.has(`${row},${col}`)
+        const value = inSelection ? (rows[row]?.[col] ?? null) : null
+        const text = formatCellDisplay(value)
+        fields.push(
+          /[\t\n\r"]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text,
+        )
+
+        if (isCut && inSelection) {
+          const originalRow = originalIndices[row]
+          if (originalRow === undefined) continue
+          const before = this._document.getCell(this._sheetIndex, originalRow, col)
+          if (before !== null) {
+            edit.cells.push({
+              sheetIndex: this._sheetIndex,
+              row: originalRow,
+              col,
+              before,
+              after: null,
+            })
           }
         }
-        data.push(rowData)
       }
-      this._clipboard = data
-      const plainText = data
-        .map((row) => row.map((cell) => String(cell ?? "")).join("\t"))
-        .join("\n")
-      await vscode.env.clipboard.writeText(plainText)
-      if (payload.action === "cut") {
-        this._pushHistory()
-        this._triggerAutoSave()
-        this._update()
+      lines.push(fields.join("\t"))
+    }
+
+    await vscode.env.clipboard.writeText(lines.join("\n"))
+    // History is recorded *after* reading the values but before they are
+    // applied, so undo restores what was cut.
+    if (isCut) this._commit(edit)
+  }
+
+  private async _paste() {
+    if (this._selection.length === 0) return
+    const text = await vscode.env.clipboard.readText()
+    if (!text) return
+
+    const source = this._parseClipboard(text)
+    if (source.length === 0) return
+
+    const anchor = this._selection[0]
+    const startRow = Math.min(anchor.startRow, anchor.endRow)
+    const startCol = Math.min(anchor.startCol, anchor.endCol)
+
+    // A paste may extend the sheet rather than being truncated. Rows beyond the
+    // current view can only be addressed when the view is the sheet itself, so
+    // growth is limited to the unsorted, unfiltered case.
+    const { originalIndices } = this._processed()
+    const isIdentityView = this._filters.size === 0 && !this._sort
+    const overflowsView = startRow + source.length > originalIndices.length
+
+    const neededRows =
+      overflowsView && isIdentityView
+        ? Math.max(this._allRows.length, startRow + source.length)
+        : this._allRows.length
+
+    // reduce, not Math.max(...spread): a wide paste would exceed the argument
+    // limit and throw.
+    const widest = source.reduce((max, row) => Math.max(max, row.length), 0)
+    const neededCols = Math.max(
+      this._document.model.headers.length,
+      startCol + widest,
+    )
+    this._document.ensureSize(this._sheetIndex, neededRows, neededCols)
+
+    // ensureSize can add rows, which changes the processed view.
+    this._rowVersion++
+    this._processedCache = null
+    const refreshed = this._processed()
+
+    const edit = emptyEdit("Paste")
+    for (let r = 0; r < source.length; r++) {
+      const viewRow = startRow + r
+      // Past the end of a filtered or sorted view there is no row to write to,
+      // so the paste stops rather than landing somewhere arbitrary.
+      const originalRow = refreshed.originalIndices[viewRow]
+      if (originalRow === undefined) break
+
+      for (let c = 0; c < source[r].length; c++) {
+        const col = startCol + c
+        if (col >= this._document.model.headers.length) break
+        const before = this._document.getCell(this._sheetIndex, originalRow, col)
+        const after = coerceInput(source[r][c])
+        if (formatCellEdit(before) === formatCellEdit(after)) continue
+        edit.cells.push({
+          sheetIndex: this._sheetIndex,
+          row: originalRow,
+          col,
+          before,
+          after,
+        })
       }
-    } else if (payload.action === "paste" && this._clipboard) {
-      const startRow = selection.startRow
-      const startCol = selection.startCol
-      const clipboardText = await vscode.env.clipboard.readText()
-      const parsed = clipboardText
-        ? clipboardText
-            .split(/\r?\n/)
-            .filter(
-              (line, idx, arr) => !(line === "" && idx === arr.length - 1),
-            )
-            .map((line) => line.split("\t"))
-        : null
-      const source = parsed && parsed.length > 0 ? parsed : this._clipboard
-      if (!source) return
+    }
 
-      this._pushHistory()
-      for (let r = 0; r < source.length; r++) {
-        const targetRow = startRow + r
-        if (targetRow >= rows.length) break
-        const realRow = originalIndices[targetRow]
+    this._commit(edit)
+  }
 
-        for (let c = 0; c < source[r].length; c++) {
-          const targetCol = startCol + c
-          if (targetCol >= this._tableModel.headers.length) break
-          this._tableModel.rows[realRow][targetCol] = source[r][c]
-        }
-      }
-      this._commitActiveSheet()
-      this._triggerAutoSave()
-      this._update()
+  // -------------------------------------------------------------------- commit
+
+  private _commit(edit: DocumentEdit) {
+    this._document.pushEdit(edit)
+    if (this._isAutoSaveEnabled && this._document.hasUnsavedChanges) {
+      void vscode.commands.executeCommand("workbench.action.files.save")
     }
   }
 
-  private _handleSwitchSheet(index?: number) {
-    if (typeof index !== "number") return
-    if (!this._tableModel.sheets[index]) return
-    this._commitActiveSheet()
-    const sheet = this._tableModel.sheets[index]
-    this._tableModel.sheetIndex = index
-    this._tableModel.sheetName = sheet.name
-    this._tableModel.headers = sheet.headers
-    this._tableModel.rows = sheet.rows
-    this._styles = new Map(sheet.styles)
-    this._filters = new Map()
-    this._sortColumn = -1
-    this._sortDirection = "none"
-    this._selectedRanges = []
-    this._update()
-  }
-
-  private _pushHistory() {
-    const snapshot = {
-      rows: JSON.parse(JSON.stringify(this._tableModel.rows)) as any[][],
-      styles: new Map(
-        Array.from(this._styles.entries()).map(([key, value]) => [
-          key,
-          { ...value },
-        ]),
-      ),
-    }
-    this._history.push(snapshot)
-    if (this._history.length > this._maxHistory) {
-      this._history.shift()
-    }
-  }
-
-  private _undo() {
-    const snapshot = this._history.pop()
-    if (!snapshot) return
-    this._tableModel.rows = snapshot.rows
-    this._styles = snapshot.styles
-    this._commitActiveSheet()
-    this._update()
-  }
-
-  private _commitActiveSheet() {
-    const sheet = this._tableModel.sheets[this._tableModel.sheetIndex]
-    if (!sheet) return
-    sheet.headers = this._tableModel.headers
-    sheet.rows = this._tableModel.rows
-    sheet.styles = new Map(this._styles)
-    sheet.name = this._tableModel.sheetName
-  }
-
-  private _triggerAutoSave() {
-    if (this._isAutoSaveEnabled) {
-      vscode.commands.executeCommand(
-        "excel-lite.internalSave",
-        this._tableModel,
-        this._styles,
-      )
-    }
-  }
-
-  /**
-   * Applies filters and sorting to the table model, returning the processed view.
-   */
-  private _getProcessedRows(): { rows: any[][]; originalIndices: number[] } {
-    let rows = [
-      ...this._tableModel.rows.map((row, idx) => ({
-        data: row,
-        originalIndex: idx,
-      })),
-    ]
-    this._filters.forEach((filter, colIndex) => {
-      rows = rows.filter((row) => {
-        const cellValue = String(row.data[colIndex] || "").toLowerCase()
-        const filterValue =
-          typeof filter.value === "string" ? filter.value.toLowerCase() : ""
-        const filterValues = Array.isArray(filter.value)
-          ? filter.value.map((val) => String(val).toLowerCase())
-          : []
-        switch (filter.operator) {
-          case "contains":
-            return cellValue.includes(filterValue)
-          case "equals":
-            return cellValue === filterValue
-          case "notEquals":
-            return cellValue !== filterValue
-          case "in":
-            return filterValues.includes(cellValue)
-          case "startsWith":
-            return cellValue.startsWith(filterValue)
-          case "endsWith":
-            return cellValue.endsWith(filterValue)
-          case ">":
-            return parseFloat(cellValue) > parseFloat(filterValue)
-          case "<":
-            return parseFloat(cellValue) < parseFloat(filterValue)
-          default:
-            return true
-        }
-      })
-    })
-    if (this._sortColumn >= 0 && this._sortDirection !== "none") {
-      rows.sort((a, b) => {
-        const aVal = a.data[this._sortColumn]
-        const bVal = b.data[this._sortColumn]
-        const aNum = parseFloat(aVal)
-        const bNum = parseFloat(bVal)
-        if (!isNaN(aNum) && !isNaN(bNum))
-          return this._sortDirection === "asc" ? aNum - bNum : bNum - aNum
-        const aStr = String(aVal || "")
-        const bStr = String(bVal || "")
-        return this._sortDirection === "asc"
-          ? aStr.localeCompare(bStr)
-          : bStr.localeCompare(aStr)
-      })
-    }
-    return {
-      rows: rows.map((r) => r.data),
-      originalIndices: rows.map((r) => r.originalIndex),
-    }
-  }
-
-  private _updateAggregates() {
-    if (this._selectedRanges.length === 0) return
-    const { rows } = this._getProcessedRows()
-    const values: number[] = []
-    let count = 0
-    this._selectedRanges.forEach((range) => {
-      for (let row = range.startRow; row <= range.endRow; row++) {
-        if (row >= rows.length) continue
-        for (let col = range.startCol; col <= range.endCol; col++) {
-          const raw = rows[row][col]
-          const text = String(raw ?? "").trim()
-          if (text !== "") count++
-          const val = parseFloat(text)
-          if (!isNaN(val)) values.push(val)
-        }
-      }
-    })
-    if (count > 0) {
-      const sum = values.reduce((a, b) => a + b, 0)
-      this._panel.webview.postMessage({
-        type: "aggregates",
-        payload: {
-          sum: sum.toFixed(2),
-          count,
-          avg: values.length ? (sum / values.length).toFixed(2) : "0.00",
-          showStats: values.length > 0,
-        },
-      })
-    } else {
-      this._panel.webview.postMessage({ type: "aggregates", payload: null })
-    }
-  }
-
-  /**
-   * Sends the latest data and state to the webview.
-   */
-  private _update() {
-    this._commitActiveSheet()
-    const { rows, originalIndices } = this._getProcessedRows()
-    const stylesForWebview: Record<string, CellStyle> = {}
-    this._styles.forEach((style, key) => {
-      stylesForWebview[key] = style
-    })
-
-    this._panel.webview.postMessage({
-      type: "update",
-      payload: {
-        rows,
-        headers: this._tableModel.headers,
-        originalIndices,
-        styles: stylesForWebview,
-        sheetName: this._tableModel.sheetName,
-        sheetIndex: this._tableModel.sheetIndex,
-        sheets: this._tableModel.sheets.map((sheet, index) => ({
-          name: sheet.name,
-          index,
-        })),
-        isAutoSaveEnabled: this._isAutoSaveEnabled,
-      },
-    })
-  }
-
-  public getStyles(): Map<string, CellStyle> {
-    return this._styles
-  }
-  public getTableModel(): TableModel {
-    return this._tableModel
+  public reveal(column?: vscode.ViewColumn) {
+    this._panel.reveal(column)
   }
 
   public dispose() {
-    if (ExcelPanel.currentPanel === this) ExcelPanel.currentPanel = undefined
-    this._panel.dispose()
-    while (this._disposables.length) {
-      const x = this._disposables.pop()
-      if (x) x.dispose()
-    }
+    if (this._disposed) return
+    this._disposed = true
+    while (this._disposables.length) this._disposables.pop()?.dispose()
   }
 }

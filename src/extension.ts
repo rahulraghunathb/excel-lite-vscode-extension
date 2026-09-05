@@ -1,183 +1,184 @@
-import * as vscode from "vscode"
 import * as path from "path"
-import { parseFile, TableModel } from "./fileParser"
+import * as vscode from "vscode"
+
+import { ExcelDocument } from "./ExcelDocument"
 import { ExcelPanel } from "./ExcelPanel"
+import { UnsupportedLegacyXlsError } from "./fileParser"
+
+const VIEW_TYPE = "excel-lite.viewer"
+const SUPPORTED_EXTENSIONS = [".xlsx", ".xlsm", ".csv", ".tsv"]
 
 /**
- * Provider for Excel Lite custom editor (allows making it the default viewer)
+ * Editable custom editor for spreadsheets.
+ *
+ * Implementing the full `CustomEditorProvider` (rather than the read-only
+ * variant) is what gives the tab a dirty indicator, working Ctrl+S, native
+ * undo/redo and hot exit — previously edits vanished silently on close.
  */
-class ExcelEditorProvider implements vscode.CustomReadonlyEditorProvider {
+class ExcelEditorProvider implements vscode.CustomEditorProvider<ExcelDocument> {
+  private readonly _onDidChangeCustomDocument = new vscode.EventEmitter<
+    vscode.CustomDocumentEditEvent<ExcelDocument>
+  >()
+  public readonly onDidChangeCustomDocument =
+    this._onDidChangeCustomDocument.event
+
+  constructor(private readonly _context: vscode.ExtensionContext) {}
+
   public static register(context: vscode.ExtensionContext): vscode.Disposable {
-    const provider = new ExcelEditorProvider(context)
     return vscode.window.registerCustomEditorProvider(
-      ExcelEditorProvider.viewType,
-      provider,
+      VIEW_TYPE,
+      new ExcelEditorProvider(context),
       {
-        webviewOptions: {
-          retainContextWhenHidden: true,
-        },
+        webviewOptions: { retainContextWhenHidden: false },
         supportsMultipleEditorsPerDocument: false,
-      }
+      },
     )
   }
-
-  private static readonly viewType = "excel-lite.viewer"
-
-  constructor(private readonly context: vscode.ExtensionContext) { }
 
   public async openCustomDocument(
     uri: vscode.Uri,
-    _openContext: vscode.CustomDocumentOpenContext,
-    _token: vscode.CancellationToken
-  ): Promise<vscode.CustomDocument> {
-    return { uri, dispose: () => { } }
+    openContext: vscode.CustomDocumentOpenContext,
+    _token: vscode.CancellationToken,
+  ): Promise<ExcelDocument> {
+    const document = await ExcelDocument.create(uri, openContext.backupId)
+    document.onDidChangeDocument((event) =>
+      this._onDidChangeCustomDocument.fire(event),
+    )
+    return document
   }
 
   public async resolveCustomEditor(
-    document: vscode.CustomDocument,
+    document: ExcelDocument,
     webviewPanel: vscode.WebviewPanel,
-    _token: vscode.CancellationToken
+    _token: vscode.CancellationToken,
   ): Promise<void> {
-    try {
-      const tableModel = await parseFile(document.uri.fsPath)
-      new ExcelPanel(webviewPanel, this.context.extensionUri, tableModel)
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "Unknown error"
-      vscode.window.showErrorMessage(`Failed to open custom editor: ${msg}`)
-    }
+    new ExcelPanel(document, webviewPanel, this._context.extensionUri)
   }
+
+  public saveCustomDocument(
+    document: ExcelDocument,
+    cancellation: vscode.CancellationToken,
+  ): Thenable<void> {
+    return document.save(cancellation)
+  }
+
+  public saveCustomDocumentAs(
+    document: ExcelDocument,
+    destination: vscode.Uri,
+    cancellation: vscode.CancellationToken,
+  ): Thenable<void> {
+    return document.saveAs(destination, cancellation)
+  }
+
+  public revertCustomDocument(document: ExcelDocument): Thenable<void> {
+    return document.revert()
+  }
+
+  public backupCustomDocument(
+    document: ExcelDocument,
+    context: vscode.CustomDocumentBackupContext,
+    cancellation: vscode.CancellationToken,
+  ): Thenable<vscode.CustomDocumentBackup> {
+    return document.backup(context.destination, cancellation)
+  }
+}
+
+function isSupported(uri: vscode.Uri): boolean {
+  return SUPPORTED_EXTENSIONS.includes(path.extname(uri.fsPath).toLowerCase())
+}
+
+/** Best guess at the spreadsheet the user means right now. */
+function activeSpreadsheetUri(): vscode.Uri | undefined {
+  const activeTabInput = vscode.window.tabGroups.activeTabGroup.activeTab?.input
+  if (
+    activeTabInput instanceof vscode.TabInputCustom &&
+    activeTabInput.viewType === VIEW_TYPE
+  ) {
+    return activeTabInput.uri
+  }
+  if (activeTabInput instanceof vscode.TabInputText) {
+    return isSupported(activeTabInput.uri) ? activeTabInput.uri : undefined
+  }
+  const editor = vscode.window.activeTextEditor
+  if (editor && isSupported(editor.document.uri)) return editor.document.uri
+  return undefined
+}
+
+function reportOpenFailure(error: unknown, uri: vscode.Uri) {
+  if (error instanceof UnsupportedLegacyXlsError) {
+    vscode.window.showErrorMessage(error.message)
+    return
+  }
+  const message = error instanceof Error ? error.message : "Unknown error"
+  vscode.window.showErrorMessage(
+    `Excel Lite could not open ${path.basename(uri.fsPath)}: ${message}`,
+  )
 }
 
 export function activate(context: vscode.ExtensionContext) {
-  console.log("[Excel Lite] Extension activated")
-
-  // Register Custom Editor Provider
   context.subscriptions.push(ExcelEditorProvider.register(context))
 
-  // Open Viewer command
-  context.subscriptions.push(
-    vscode.commands.registerCommand("excel-lite.openViewer", async () => {
-      let filePath: string | undefined
-      const activeEditor = vscode.window.activeTextEditor
-      if (activeEditor) {
-        const ext = path.extname(activeEditor.document.uri.fsPath).toLowerCase()
-        if ([".xlsx", ".xls", ".csv"].includes(ext)) {
-          filePath = activeEditor.document.uri.fsPath
-        }
-      }
-
-      if (!filePath) {
-        const fileUri = await vscode.window.showOpenDialog({
-          canSelectFiles: true,
-          filters: {
-            "Excel/CSV Files": ["xlsx", "xls", "csv"],
-            "All Files": ["*"],
-          },
-          title: "Select Excel or CSV file",
-        })
-        if (fileUri && fileUri[0]) filePath = fileUri[0].fsPath
-      }
-
-      if (!filePath) return
-
-      try {
-        await vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: "Loading file...",
-            cancellable: false,
-          },
-          async () => {
-            const tableModel = await parseFile(filePath!)
-            ExcelPanel.createOrShow(context.extensionUri, tableModel)
-          }
-        )
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : "Unknown error"
-        vscode.window.showErrorMessage(`Failed to load file: ${msg}`)
-      }
-    })
-  )
-
-  /**
-   * Helper to perform save operation
-   */
-  async function performSave(
-    savePath: string,
-    tableModel: TableModel,
-    styles: Map<string, any>,
-    silent: boolean = false
-  ) {
-    try {
-      const { writeExcel, writeCsv } = await import("./fileWriter")
-      const ext = path.extname(savePath).toLowerCase()
-      if (ext === ".xlsx") await writeExcel(savePath, tableModel, styles)
-      else if (ext === ".csv") await writeCsv(savePath, tableModel)
-      else throw new Error("Unsupported file format")
-
-      if (!silent) {
-        vscode.window.showInformationMessage(
-          `File saved: ${path.basename(savePath)}`
-        )
-      }
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "Unknown error"
-      vscode.window.showErrorMessage(`Failed to save file: ${msg}`)
-    }
-  }
-
-  // Register internal save listener for ExcelPanel
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "excel-lite.internalSave",
-      async (tableModel: TableModel, styles: Map<string, any>) => {
-        await performSave(tableModel.filePath, tableModel, styles, true)
-      }
-    )
+      "excel-lite.openViewer",
+      async (resource?: vscode.Uri) => {
+        let uri = resource instanceof vscode.Uri ? resource : activeSpreadsheetUri()
+
+        if (!uri) {
+          const picked = await vscode.window.showOpenDialog({
+            canSelectFiles: true,
+            canSelectMany: false,
+            filters: {
+              Spreadsheets: ["xlsx", "xlsm", "csv", "tsv"],
+              "All Files": ["*"],
+            },
+            title: "Select a spreadsheet",
+          })
+          uri = picked?.[0]
+        }
+        if (!uri) return
+
+        if (path.extname(uri.fsPath).toLowerCase() === ".xls") {
+          vscode.window.showErrorMessage(
+            new UnsupportedLegacyXlsError(uri.fsPath).message,
+          )
+          return
+        }
+
+        try {
+          // Route through the custom editor so every file gets a real document
+          // with its own undo stack, dirty state and save target.
+          await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE)
+        } catch (error) {
+          reportOpenFailure(error, uri)
+        }
+      },
+    ),
   )
 
-  // Save Changes command
   context.subscriptions.push(
     vscode.commands.registerCommand("excel-lite.saveChanges", async () => {
-      if (!ExcelPanel.currentPanel) {
-        vscode.window.showWarningMessage("No Excel file is currently open")
+      const uri = activeSpreadsheetUri()
+      if (!uri) {
+        vscode.window.showWarningMessage("No spreadsheet is currently open")
         return
       }
+      await vscode.commands.executeCommand("workbench.action.files.save")
+    }),
+  )
 
-      const panel = ExcelPanel.currentPanel
-      const tableModel = panel.getTableModel()
-      const styles = panel.getStyles()
-
-      const choice = await vscode.window.showQuickPick(
-        [
-          { label: "Overwrite Original", description: tableModel.filePath },
-          { label: "Save As...", description: "Choose a new location" },
-        ],
-        { placeHolder: "How would you like to save?" }
-      )
-
-      if (!choice) return
-
-      let savePath = tableModel.filePath
-      if (choice.label === "Save As...") {
-        const uri = await vscode.window.showSaveDialog({
-          defaultUri: vscode.Uri.file(tableModel.filePath),
-          filters: { "Excel Files": ["xlsx"], "CSV Files": ["csv"] },
-        })
-        if (!uri) return
-        savePath = uri.fsPath
+  context.subscriptions.push(
+    vscode.commands.registerCommand("excel-lite.saveAs", async () => {
+      const uri = activeSpreadsheetUri()
+      if (!uri) {
+        vscode.window.showWarningMessage("No spreadsheet is currently open")
+        return
       }
-
-      await vscode.window.withProgress(
-        {
-          location: vscode.ProgressLocation.Notification,
-          title: "Saving file...",
-          cancellable: false,
-        },
-        () => performSave(savePath, tableModel, styles)
-      )
-    })
+      await vscode.commands.executeCommand("workbench.action.files.saveAs")
+    }),
   )
 }
 
-export function deactivate() { }
+export function deactivate() {
+  /* nothing to tear down: all resources are registered as subscriptions */
+}

@@ -31,29 +31,51 @@ This document provides instructions for setting up, building, and maintaining th
 
 The extension uses `esbuild` for fast bundling and `eslint` for code quality.
 
+The project produces **two** bundles:
+
+| Bundle              | Source                        | Runs in            |
+| ------------------- | ----------------------------- | ------------------ |
+| `dist/extension.js` | `src/extension.ts`            | Node (extension host) |
+| `dist/webview.js`   | `src/webview/client/main.ts`  | Browser (webview)  |
+
+They are type-checked separately, because only the webview may touch the DOM:
+`tsconfig.json` covers the host and `src/webview/client/tsconfig.json` the client.
+
 ### Build Scripts
 
-- **One-time build**:
+- **One-time build** — builds both bundles:
 
   ```bash
   npm run build
   ```
 
-  Compiles and bundles the extension into the `dist` directory.
-
-- **Watch mode**:
+- **Watch mode** — rebuilds both on change:
 
   ```bash
   npm run watch
   ```
 
-  Starts a build task that watches for changes in the `src` directory and rebuilds automatically. This is recommended during development.
+- **Tests** — 94 unit, round-trip and end-to-end tests:
+
+  ```bash
+  npm test
+  ```
+
+  `src/test/vscodeStub.ts` is aliased over the real `vscode` module at build
+  time, so the document and panel run under `node --test` without an Extension
+  Development Host.
+
+- **Type checking** (both projects):
+
+  ```bash
+  npm run typecheck
+  ```
 
 - **Linting**:
+
   ```bash
   npm run lint
   ```
-  Runs ESLint to check for code quality and style issues in the `src` directory.
 
 ## Debugging
 
@@ -85,6 +107,25 @@ To install the extension without running it in a development host:
 1.  **Open VS Code**.
 2.  Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on macOS) to open the **Command Palette**.
 3.  Type `Extensions: Install from VSIX...` and select it.
-4.  Navigate to the `excel-extension` folder and select the `.vsix` file (e.g., `excel-lite-1.0.1.vsix`).
+4.  Navigate to the `excel-extension` folder and select the `.vsix` file (e.g., `excel-lite-2.0.0.vsix`).
 5.  Once the installation is complete, click **Reload Now** if prompted.
-6.  The extension is now permanently installed. You can open any `.xlsx` or `.csv` file, right-click, and select "Open With..." -> "Excel Lite Viewer" to use it.
+6.  Excel Lite is registered as the default editor for `.xlsx`, `.xlsm`, `.csv`
+    and `.tsv`. To open a file as raw text instead, right-click it and choose
+    **Open With… → Text Editor**.
+
+## Architecture
+
+- `src/model.ts` — cell value union, display formatting, input coercion, colour
+  validation. Pure, no VS Code dependency.
+- `src/grid.ts` — filtering, sorting and aggregates. Pure, and unit tested directly.
+- `src/fileParser.ts` / `src/fileWriter.ts` — parsing, and **patch-based** saving
+  that preserves everything the model does not represent.
+- `src/ExcelDocument.ts` — the `CustomDocument`: dirty tracking, undo/redo patches,
+  backup for hot exit, conflict detection.
+- `src/ExcelPanel.ts` — one webview per document; owns view state only.
+- `src/webview/client/` — the browser-side grid (virtualised rendering, selection,
+  keyboard handling, filter popup).
+
+The webview receives **display strings only**, one window of rows at a time; raw
+values never leave the extension host. Both sides therefore agree on what a cell
+says, which is what makes filtering by date or by `0` behave correctly.

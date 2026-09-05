@@ -1,8 +1,10 @@
 .vscode/**
 node_modules/**
 src/**
-*.ts
-*.map
+out/**
+**/*.ts
+**/*.map
+.eslintrc.json
 .gitignore
 tsconfig.json
-test-data.csv
+*.vsix

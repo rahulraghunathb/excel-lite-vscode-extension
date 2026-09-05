@@ -1,8 +1,8 @@
 {
   "name": "excel-lite",
   "displayName": "Excel Lite",
-  "description": "View and edit Excel/CSV files with sorting, filtering, and formatting",
-  "version": "1.0.2",
+  "description": "View and edit Excel/CSV files in VS Code with sorting, filtering, formatting and non-destructive saves",
+  "version": "2.0.0",
   "publisher": "rahulraghunathb",
   "icon": "media/logo_white_background.png",
   "repository": {
@@ -17,42 +17,42 @@
     "vscode": "^1.75.0"
   },
   "categories": [
+    "Data Science",
+    "Visualization",
     "Other"
   ],
-  "activationEvents": [
-    "onStartupFinished"
-  ],
+  "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
         "command": "excel-lite.openViewer",
-        "title": "Excel Lite: Open Viewer"
+        "title": "Open Viewer",
+        "category": "Excel Lite"
       },
       {
         "command": "excel-lite.saveChanges",
-        "title": "Excel Lite: Save Changes"
+        "title": "Save",
+        "category": "Excel Lite"
+      },
+      {
+        "command": "excel-lite.saveAs",
+        "title": "Save As...",
+        "category": "Excel Lite"
       }
     ],
     "menus": {
       "explorer/context": [
         {
           "command": "excel-lite.openViewer",
-          "when": "resourceExtname == .xlsx || resourceExtname == .csv",
-          "group": "navigation"
-        }
-      ],
-      "editor/context": [
-        {
-          "command": "excel-lite.openViewer",
-          "when": "resourceExtname == .xlsx || resourceExtname == .csv",
+          "when": "resourceExtname == .xlsx || resourceExtname == .xlsm || resourceExtname == .csv || resourceExtname == .tsv",
           "group": "navigation"
         }
       ],
       "editor/title": [
         {
           "command": "excel-lite.openViewer",
-          "when": "resourceExtname == .xlsx || resourceExtname == .csv",
+          "when": "resourceExtname == .xlsx || resourceExtname == .xlsm || resourceExtname == .csv || resourceExtname == .tsv",
           "group": "navigation"
         }
       ]
@@ -60,48 +60,35 @@
     "customEditors": [
       {
         "viewType": "excel-lite.viewer",
-        "displayName": "Excel Lite Viewer",
+        "displayName": "Excel Lite",
         "selector": [
           {
             "filenamePattern": "*.xlsx"
           },
           {
+            "filenamePattern": "*.xlsm"
+          },
+          {
             "filenamePattern": "*.csv"
+          },
+          {
+            "filenamePattern": "*.tsv"
           }
         ],
         "priority": "default"
-      }
-    ],
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "excel-lite-sidebar",
-          "title": "Excel Lite",
-          "icon": "media/icon.svg"
-        }
-      ]
-    },
-    "views": {
-      "excel-lite-sidebar": [
-        {
-          "id": "excel-lite-welcome",
-          "name": "Welcome",
-          "icon": "media/icon.svg"
-        }
-      ]
-    },
-    "viewsWelcome": [
-      {
-        "view": "excel-lite-welcome",
-        "contents": "Welcome to Excel Lite! \n [Open Excel/CSV File](command:excel-lite.openViewer) \n To make this the default viewer, right-click a .csv or .xlsx file and select 'Open With...' -> 'Configure default editor...'"
       }
     ]
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "build": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify",
-    "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
-    "lint": "eslint src --ext ts"
+    "build": "npm run build:ext && npm run build:web",
+    "build:ext": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify",
+    "build:web": "esbuild ./src/webview/client/main.ts --bundle --outfile=dist/webview.js --format=iife --platform=browser --target=es2020 --minify",
+    "watch": "npm run build:ext -- --sourcemap --watch & npm run build:web -- --sourcemap --watch",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p src/webview/client",
+    "lint": "eslint src --ext ts",
+    "pretest": "esbuild src/test/*.test.ts --bundle --outdir=out/test --platform=node --format=cjs --alias:vscode=./src/test/vscodeStub.ts --log-level=warning",
+    "test": "node --test \"out/test/*.test.js\""
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
@@ -116,5 +103,16 @@
   "dependencies": {
     "exceljs": "^4.4.0",
     "papaparse": "^5.5.3"
-  }
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "excel",
+    "xlsx",
+    "csv",
+    "tsv",
+    "spreadsheet",
+    "viewer",
+    "editor",
+    "data"
+  ]
 }
