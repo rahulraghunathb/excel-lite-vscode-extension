@@ -16,7 +16,7 @@ formatting — and **without rewriting the parts of your workbook you didn't tou
 
 - Opens `.xlsx`, `.xlsm`, `.csv` and `.tsv` in a custom editor.
 - Multi-sheet workbooks, with tabs along the bottom.
-- Rename the file or the active sheet from the toolbar.
+- Rename the file or the active sheet from the toolbar overflow menu (**⋯**).
 
 ### Non-destructive saving
 
@@ -34,6 +34,9 @@ edit shows up in git as a one-line diff.
 - Double-click, `F2`, `Enter`, or just start typing to edit a cell.
 - A **formula bar** shows the selected cell's reference and its true contents —
   the formula, not the cached result — and edits commit with `Enter`.
+- The toolbar groups undo/redo, character formatting, colour, alignment and
+  search, with the rest behind **⋯**. Colour controls are split buttons: the
+  button applies the colour shown, the chevron opens the picker.
 - Values keep their type: `42` is a number, `2026-01-15` is a date, `=A1+B1` is a
   formula, and identifiers such as `007` stay text.
 - Full keyboard navigation: arrows, `Tab`, `Enter`, `Page Up/Down`, `Home`/`End`,

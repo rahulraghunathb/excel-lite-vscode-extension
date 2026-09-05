@@ -38,6 +38,7 @@ import {
   closeContextMenu,
   openCellMenu,
   openColumnMenu,
+  openMenu,
   openRowMenu,
 } from "./contextMenu"
 import {
@@ -119,8 +120,7 @@ function handleInit(payload: InitPayload) {
   }
 
   dom.loading.classList.add("hidden")
-  dom.sheetName.textContent = payload.sheetName
-  renderSheetTabs(payload.sheets, payload.sheetIndex)
+  renderSheetTabs(payload.sheets, payload.sheetIndex, payload.sheetName)
   renderRowCount(payload.totalRows, payload.unfilteredRows)
   ;(document.getElementById("autoSaveToggle") as HTMLInputElement).checked =
     payload.isAutoSaveEnabled
@@ -142,10 +142,13 @@ function handleWindow(payload: WindowPayload) {
   renderBody()
 }
 
+const IDLE_HINT =
+  "Double-click or F2 to edit · right-click a row or column header to insert or delete"
+
 function handleAggregates(payload: AggregatesPayload | null) {
   if (!payload) {
     dom.agg.classList.add("hidden")
-    dom.selInfo.textContent = "Click to select · double-click or F2 to edit"
+    dom.selInfo.textContent = IDLE_HINT
     return
   }
   dom.agg.classList.remove("hidden")
@@ -392,8 +395,21 @@ function endResize() {
 
 // --------------------------------------------------------------------- events
 
+/**
+ * The Element an event fired on, or null.
+ *
+ * `event.target` is not always an Element (it can be `document` or a text
+ * node), and calling `.closest()` on one of those throws, which would abort the
+ * handler and leave popups stuck open.
+ */
+function elementFrom(event: Event): HTMLElement | null {
+  const target = event.target
+  return target instanceof HTMLElement ? target : null
+}
+
 dom.grid.addEventListener("mousedown", (event) => {
-  const target = event.target as HTMLElement
+  const target = elementFrom(event)
+  if (!target) return
   if (target.closest(".col-resizer, .row-resizer")) {
     beginResize(event, target.closest(".col-resizer, .row-resizer") as HTMLElement)
     return
@@ -433,8 +449,9 @@ dom.grid.addEventListener("mousedown", (event) => {
 })
 
 dom.grid.addEventListener("contextmenu", (event) => {
-  const target = event.target as HTMLElement
+  const target = elementFrom(event)
   event.preventDefault()
+  if (!target) return
 
   const rowHeader = target.closest<HTMLElement>("td.row-header")
   if (rowHeader) {
@@ -493,7 +510,7 @@ function isSelectedColumn(col: number): boolean {
 
 dom.grid.addEventListener("mousemove", (event) => {
   if (!state.isDragging) return
-  const cell = (event.target as HTMLElement).closest<HTMLElement>("td.cell")
+  const cell = elementFrom(event)?.closest<HTMLElement>("td.cell")
   if (cell) extendSelection(Number(cell.dataset.row), Number(cell.dataset.col))
 })
 
@@ -508,14 +525,20 @@ document.addEventListener("mouseup", () => {
 document.addEventListener("mousemove", handleResizeMove)
 
 dom.grid.addEventListener("dblclick", (event) => {
-  const cell = (event.target as HTMLElement).closest<HTMLElement>("td.cell")
+  const cell = elementFrom(event)?.closest<HTMLElement>("td.cell")
   if (!cell) return
   requestEdit(Number(cell.dataset.row), Number(cell.dataset.col))
 })
 
 // Sorting from a header click, and opening the filter menu.
 document.addEventListener("click", (event) => {
-  const target = event.target as HTMLElement
+  const target = elementFrom(event)
+  if (!target) {
+    // A click that did not land on an element still dismisses transient UI.
+    closeFilterPopup()
+    closeContextMenu()
+    return
+  }
 
   const filterIcon = target.closest<HTMLElement>(".filter-icon")
   if (filterIcon) {
@@ -545,7 +568,7 @@ document.addEventListener("click", (event) => {
 })
 
 dom.sheetTabs.addEventListener("dblclick", (event) => {
-  const tab = (event.target as HTMLElement).closest<HTMLElement>(".sheet-tab")
+  const tab = elementFrom(event)?.closest<HTMLElement>(".sheet-tab")
   if (tab) {
     vscode.postMessage({
       type: "renameSheet",
@@ -587,8 +610,8 @@ window.addEventListener("resize", () => scheduleWindowFetch())
 
 document.addEventListener("keydown", (event) => {
   if (editor) return
-  const target = event.target as HTMLElement
-  if (target.tagName === "INPUT" || target.tagName === "SELECT") return
+  const target = elementFrom(event)
+  if (target?.tagName === "INPUT" || target?.tagName === "SELECT") return
 
   const ctrl = event.ctrlKey || event.metaKey
 
@@ -726,32 +749,90 @@ bind("alignLeftBtn", () => style({ type: "align", align: "left" }))
 bind("alignCenterBtn", () => style({ type: "align", align: "center" }))
 bind("alignRightBtn", () => style({ type: "align", align: "right" }))
 bind("findBtn", () => openFind())
-
-bind("fillBtn", () =>
-  style({
-    type: "fill",
-    color: (document.getElementById("fillColor") as HTMLInputElement).value,
-  }),
-)
-bind("fontColorBtn", () =>
-  style({
-    type: "fontColor",
-    color: (document.getElementById("fontColor") as HTMLInputElement).value,
-  }),
-)
-bind("renameFileBtn", () => vscode.postMessage({ type: "renameFile" }))
-bind("renameSheetBtn", () => vscode.postMessage({ type: "renameSheet" }))
 bind("saveBtn", () => vscode.postMessage({ type: "save" }))
+bind("undoBtn", () => vscode.postMessage({ type: "undo" }))
+bind("redoBtn", () => vscode.postMessage({ type: "redo" }))
+
+/**
+ * Wire a split colour control.
+ *
+ * Clicking the button applies the colour already shown, so repeating it on
+ * another selection is one click; the chevron opens the native picker, and
+ * choosing there applies immediately rather than requiring a second click.
+ */
+function bindColour(buttonId: string, inputId: string, barId: string, type: string) {
+  const input = document.getElementById(inputId) as HTMLInputElement
+  const bar = document.getElementById(barId) as HTMLElement
+  const apply = () => style({ type, color: input.value })
+
+  bar.style.background = input.value
+  input.oninput = () => {
+    bar.style.background = input.value
+  }
+  input.onchange = () => {
+    bar.style.background = input.value
+    apply()
+  }
+  bind(buttonId, apply)
+}
+
+bindColour("fontColorBtn", "fontColor", "fontColorBar", "fontColor")
+bindColour("fillBtn", "fillColor", "fillColorBar", "fill")
+
+/** Rarely used actions live behind an overflow menu to keep the toolbar short. */
+const moreBtn = document.getElementById("moreBtn") as HTMLButtonElement
+moreBtn.onclick = (event) => {
+  event.stopPropagation()
+  const rect = moreBtn.getBoundingClientRect()
+  openMenu(
+    [
+      {
+        label: "Rename sheet\u2026",
+        action: () => vscode.postMessage({ type: "renameSheet" }),
+      },
+      {
+        label: "Rename file\u2026",
+        action: () => vscode.postMessage({ type: "renameFile" }),
+      },
+      { label: "", separator: true },
+      {
+        // The label has to describe the outcome: while following a dark host,
+        // the useful override is light, not dark.
+        label: themeOverridden()
+          ? "Follow the VS Code theme"
+          : isDarkHost()
+            ? "Switch to light theme"
+            : "Switch to dark theme",
+        action: () =>
+          applyTheme(
+            themeOverridden() ? "auto" : isDarkHost() ? "light" : "dark",
+          ),
+      },
+    ],
+    rect.left,
+    rect.bottom + 4,
+  )
+}
 
 const autoSave = document.getElementById("autoSaveToggle") as HTMLInputElement
 autoSave.onchange = () =>
   vscode.postMessage({ type: "autoSaveToggle", payload: autoSave.checked })
 
-const themeToggle = document.getElementById("themeToggle") as HTMLInputElement
+/** Whether the host VS Code theme is a dark one. */
+function isDarkHost(): boolean {
+  return (
+    document.body.classList.contains("vscode-dark") ||
+    document.body.classList.contains("vscode-high-contrast")
+  )
+}
+
+function themeOverridden(): boolean {
+  return (persisted.theme ?? "auto") !== "auto"
+}
 
 /**
- * Default to the VS Code theme; the toggle is an explicit override that
- * persists across reloads of this panel.
+ * Follow the VS Code theme by default; the overflow menu offers an explicit
+ * override that persists across reloads of this panel.
  */
 function applyTheme(theme: "dark" | "light" | "auto") {
   if (theme === "auto") delete document.body.dataset.theme
@@ -760,13 +841,7 @@ function applyTheme(theme: "dark" | "light" | "auto") {
   persist()
 }
 
-themeToggle.onchange = () => applyTheme(themeToggle.checked ? "dark" : "light")
 applyTheme(persisted.theme ?? "auto")
-themeToggle.checked =
-  (persisted.theme ?? "auto") === "auto"
-    ? document.body.classList.contains("vscode-dark") ||
-      document.body.classList.contains("vscode-high-contrast")
-    : persisted.theme === "dark"
 
 window.onerror = (message, _source, line, col, error) => {
   vscode.postMessage({
@@ -776,5 +851,6 @@ window.onerror = (message, _source, line, col, error) => {
   return false
 }
 
+dom.selInfo.textContent = IDLE_HINT
 dom.grid.tabIndex = 0
 vscode.postMessage({ type: "ready" })

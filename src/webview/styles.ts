@@ -60,64 +60,141 @@ body {
     flex: 0 0 auto;
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 0 10px;
+    gap: 3px;
+    padding: 0 8px;
     background: var(--bg-alt);
     border-bottom: 1px solid var(--border);
-    overflow-x: auto;
-    white-space: nowrap;
+    /* Never let the toolbar grow a scrollbar: the overflow menu absorbs the
+       rarely used actions instead. */
+    overflow: hidden;
 }
 
-.toolbar button {
+.toolbar .group { display: flex; align-items: center; gap: 2px; }
+.toolbar .divider {
+    width: 1px;
+    height: 18px;
+    margin: 0 5px;
+    background: var(--border);
+    flex: 0 0 auto;
+}
+
+.icon-btn {
     height: 26px;
-    padding: 0 10px;
+    min-width: 26px;
+    padding: 0 5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: none;
+    color: var(--fg);
+    font: inherit;
+    cursor: pointer;
+}
+.icon-btn:hover:not(:disabled) { background: var(--selection); }
+.icon-btn:active:not(:disabled) { transform: translateY(1px); }
+.icon-btn:disabled { opacity: .4; cursor: default; }
+.icon-btn.active { background: var(--accent); color: #fff; }
+.icon-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+
+.text-btn { font-size: 14px; font-family: Georgia, "Times New Roman", serif; }
+.ico { display: block; fill: currentColor; }
+
+.toolbar button.labelled {
+    height: 26px;
+    padding: 0 9px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     border: 1px solid transparent;
     border-radius: 4px;
     background: var(--btn-bg);
     color: var(--btn-fg);
+    font: inherit;
     font-size: 12px;
-    font-family: inherit;
     cursor: pointer;
+}
+.toolbar button.labelled:hover { border-color: var(--accent); }
+
+/* Split colour control: the button applies, the chevron opens the picker. */
+.split { display: inline-flex; align-items: stretch; }
+.split-main {
+    flex-direction: column;
+    gap: 1px;
+    padding: 0 5px;
+    border-radius: 4px 0 0 4px;
+}
+.swatch-glyph {
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 11px;
+    font-family: Georgia, serif;
+}
+.swatch-glyph.fill-glyph {
+    width: 11px;
+    height: 9px;
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    display: block;
+}
+.swatch-bar {
+    display: block;
+    width: 14px;
+    height: 3px;
+    border-radius: 1px;
+    background: currentColor;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.25) inset;
+}
+.split-arrow {
+    position: relative;
+    width: 15px;
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    justify-content: center;
+    border-radius: 0 4px 4px 0;
+    color: var(--fg-dim);
+    cursor: pointer;
 }
-.toolbar button:hover { border-color: var(--accent); }
-.toolbar button:active { transform: translateY(1px); }
-.toolbar .icon { font-weight: 700; font-family: Georgia, serif; }
-.toolbar .divider { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
-
-.color-field { display: inline-flex; align-items: center; }
-.color-field input[type="color"] {
-    width: 26px; height: 26px; padding: 0;
-    border: 1px solid var(--border); border-radius: 4px;
-    background: none; cursor: pointer;
+.split-arrow:hover { background: var(--selection); color: var(--fg); }
+.split-arrow .ico { width: 11px; height: 11px; }
+/* The native picker is the whole hit area but invisible. */
+.split-arrow input[type="color"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    border: none;
+    padding: 0;
+    cursor: pointer;
 }
-
-.sheet-name { font-size: 12px; font-weight: 600; color: var(--fg-dim); padding-left: 4px; }
 
 .toggle {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
     font-size: 12px;
     cursor: pointer;
     user-select: none;
+    white-space: nowrap;
 }
 .toggle input { position: absolute; opacity: 0; pointer-events: none; }
 .toggle .track {
-    width: 28px; height: 15px; border-radius: 8px;
+    width: 26px; height: 14px; border-radius: 7px;
     background: var(--btn-bg); border: 1px solid var(--border);
-    position: relative; transition: background .15s;
+    position: relative; transition: background .15s; flex: 0 0 auto;
 }
 .toggle .thumb {
     position: absolute; top: 1px; left: 1px;
-    width: 11px; height: 11px; border-radius: 50%;
+    width: 10px; height: 10px; border-radius: 50%;
     background: var(--fg-dim); transition: transform .15s, background .15s;
 }
 .toggle input:checked + .track { background: var(--accent); }
-.toggle input:checked + .track .thumb { transform: translateX(13px); background: #fff; }
+.toggle input:checked + .track .thumb { transform: translateX(12px); background: #fff; }
 .toggle input:focus-visible + .track { outline: 1px solid var(--accent); outline-offset: 1px; }
+.toggle-label { color: var(--fg-dim); }
 
 /* --------------------------------------------------------------------- grid */
 
@@ -365,14 +442,18 @@ tr.spacer td { border: none; padding: 0; background: var(--bg); }
     flex: 0 0 auto;
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 14px;
     padding: 0 12px;
+    white-space: nowrap;
+    overflow: hidden;
     background: var(--bg-alt);
     border-top: 1px solid var(--border);
     font-size: 11px;
     color: var(--fg-dim);
 }
 #agg { font-variant-numeric: tabular-nums; color: var(--fg); }
+#sheetName { font-weight: 600; }
+#selInfo { overflow: hidden; text-overflow: ellipsis; }
 #rowCount.filtered { color: var(--accent); }
 
 #loading {
@@ -434,8 +515,29 @@ tr.spacer td { border: none; padding: 0; background: var(--bg); }
     background: var(--bg-alt);
     border-bottom: 1px solid var(--border);
 }
-.find-panel input[type="text"] {
+.find-panel .find-field {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    background: var(--vscode-input-background, var(--bg));
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding-right: 3px;
+}
+.find-panel .find-field:focus-within { border-color: var(--accent); }
+.find-panel .find-field input {
+    border: none;
+    background: none;
     height: 24px;
+    padding: 0 6px;
+    min-width: 150px;
+    color: var(--vscode-input-foreground, var(--fg));
+    font: inherit;
+    font-size: 12px;
+    outline: none;
+}
+.find-panel > input[type="text"] {
+    height: 26px;
     padding: 0 7px;
     border: 1px solid var(--border);
     border-radius: 3px;
@@ -443,12 +545,12 @@ tr.spacer td { border: none; padding: 0; background: var(--bg); }
     color: var(--vscode-input-foreground, var(--fg));
     font: inherit;
     font-size: 12px;
-    min-width: 140px;
+    min-width: 150px;
 }
-.find-panel input[type="text"]:focus { border-color: var(--accent); outline: none; }
+.find-panel > input[type="text"]:focus { border-color: var(--accent); outline: none; }
 .find-panel button {
     height: 24px;
-    min-width: 26px;
+    min-width: 24px;
     padding: 0 8px;
     border: 1px solid transparent;
     border-radius: 3px;
@@ -459,16 +561,17 @@ tr.spacer td { border: none; padding: 0; background: var(--bg); }
     cursor: pointer;
 }
 .find-panel button:hover { border-color: var(--accent); }
-.find-panel .mini {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
+.find-panel button.icon-btn { background: none; color: var(--fg); }
+.find-panel .chip {
+    height: 20px;
+    min-width: 22px;
+    padding: 0 5px;
     font-size: 11px;
+    background: none;
     color: var(--fg-dim);
-    cursor: pointer;
-    user-select: none;
 }
-.find-count { font-size: 11px; color: var(--fg-dim); min-width: 76px; }
+.find-panel .chip[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.find-count { font-size: 11px; color: var(--fg-dim); min-width: 82px; }
 .find-count.none { color: var(--vscode-errorForeground, #f14c4c); }
 
 td.cell.match { outline: 1px dashed var(--accent); outline-offset: -1px; }
@@ -502,9 +605,5 @@ td.cell.match-current { background: var(--vscode-editor-findMatchBackground, #7a
 .context-menu button:hover:not(:disabled) { background: var(--selection); }
 .context-menu button:disabled { color: var(--fg-dim); cursor: default; opacity: .5; }
 .context-menu .sep { height: 1px; margin: 4px 2px; background: var(--border); }
-
-.toolbar button.fmt { min-width: 28px; justify-content: center; font-size: 13px; }
-.toolbar button.fmt.active { background: var(--accent); color: #fff; }
-.color-field .color-glyph { font-weight: 700; font-size: 11px; margin-right: 2px; }
 
 `

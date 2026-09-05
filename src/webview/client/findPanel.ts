@@ -6,8 +6,8 @@ import type { FindResultsPayload, Match } from "./protocol"
 const panel = document.getElementById("findPanel") as HTMLDivElement
 const findInput = document.getElementById("findInput") as HTMLInputElement
 const replaceInput = document.getElementById("replaceInput") as HTMLInputElement
-const matchCase = document.getElementById("matchCase") as HTMLInputElement
-const wholeCell = document.getElementById("wholeCell") as HTMLInputElement
+const matchCase = document.getElementById("matchCase") as HTMLButtonElement
+const wholeCell = document.getElementById("wholeCell") as HTMLButtonElement
 const countLabel = document.getElementById("findCount") as HTMLSpanElement
 
 let searchTimer: ReturnType<typeof setTimeout> | undefined
@@ -15,11 +15,22 @@ let matches: Match[] = []
 let current = -1
 let truncated = false
 
+const isPressed = (button: HTMLButtonElement) =>
+  button.getAttribute("aria-pressed") === "true"
+
 function options() {
   return {
     query: findInput.value,
-    matchCase: matchCase.checked,
-    wholeCell: wholeCell.checked,
+    matchCase: isPressed(matchCase),
+    wholeCell: isPressed(wholeCell),
+  }
+}
+
+/** Chip toggles behave like the VS Code find widget's option buttons. */
+function wireChip(button: HTMLButtonElement) {
+  button.onclick = () => {
+    button.setAttribute("aria-pressed", isPressed(button) ? "false" : "true")
+    runSearch()
   }
 }
 
@@ -130,8 +141,8 @@ function replaceAll() {
 }
 
 findInput.oninput = scheduleSearch
-matchCase.onchange = runSearch
-wholeCell.onchange = runSearch
+wireChip(matchCase)
+wireChip(wholeCell)
 
 findInput.onkeydown = (event) => {
   if (event.key === "Enter") {

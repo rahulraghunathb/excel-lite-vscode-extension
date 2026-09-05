@@ -1,6 +1,6 @@
 import { state, vscode } from "./state"
 
-interface MenuItem {
+export interface MenuItem {
   label: string
   action?: () => void
   /** Reason the item is unavailable; shown as a tooltip when disabled. */
@@ -13,6 +13,10 @@ let menu: HTMLDivElement | null = null
 export function closeContextMenu() {
   menu?.remove()
   menu = null
+}
+
+export function openMenu(items: MenuItem[], x: number, y: number) {
+  build(items, x, y)
 }
 
 function build(items: MenuItem[], x: number, y: number) {

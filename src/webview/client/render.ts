@@ -269,12 +269,18 @@ export function ensureWindow(force = false) {
 export function renderSheetTabs(
   sheets: { name: string; index: number }[],
   activeIndex: number,
+  activeName: string,
 ) {
+  // With one sheet the tab strip is noise, but the name still belongs
+  // somewhere, so it moves to the status bar instead of being shown twice.
   if (sheets.length <= 1) {
     dom.sheetTabs.innerHTML = ""
     dom.sheetTabs.classList.add("hidden")
+    dom.sheetName.textContent = activeName
+    dom.sheetName.classList.remove("hidden")
     return
   }
+  dom.sheetName.classList.add("hidden")
   dom.sheetTabs.classList.remove("hidden")
   dom.sheetTabs.innerHTML = sheets
     .map(
