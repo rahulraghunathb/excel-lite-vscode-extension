@@ -8,3 +8,5 @@ out/**
 .gitignore
 tsconfig.json
 *.vsix
+# README images are served from GitHub, not shipped in the package
+media/screenshots/**

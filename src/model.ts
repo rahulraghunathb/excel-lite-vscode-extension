@@ -88,6 +88,35 @@ export function sanitizeHexColor(value: unknown): string | undefined {
   return trimmed.toLowerCase()
 }
 
+/**
+ * Black or white text, whichever is readable on `background`.
+ *
+ * A user-chosen fill is an arbitrary colour, but the grid's foreground follows
+ * the VS Code theme. Pale yellow under a dark theme therefore renders light-grey
+ * text on a light fill, which is close to illegible, so the fill picks its own
+ * contrasting foreground unless one was set explicitly.
+ *
+ * Uses the WCAG relative-luminance formula.
+ */
+export function readableTextColor(background: string): string | undefined {
+  const safe = sanitizeHexColor(background)
+  if (!safe) return undefined
+  const hex = normalizeHexColor(safe).slice(1)
+
+  const channel = (value: number) => {
+    const srgb = value / 255
+    return srgb <= 0.03928 ? srgb / 12.92 : Math.pow((srgb + 0.055) / 1.055, 2.4)
+  }
+
+  const r = channel(parseInt(hex.slice(0, 2), 16))
+  const g = channel(parseInt(hex.slice(2, 4), 16))
+  const b = channel(parseInt(hex.slice(4, 6), 16))
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+  // Contrast against white is (1.05)/(L+0.05); against black (L+0.05)/0.05.
+  return luminance > 0.179 ? "#1a1a1a" : "#ffffff"
+}
+
 /** Expand `#abc` to `#aabbcc` so downstream ARGB conversion is uniform. */
 export function normalizeHexColor(value: string): string {
   if (value.length === 4) {

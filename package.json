@@ -114,5 +114,10 @@
     "viewer",
     "editor",
     "data"
-  ]
+  ],
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
+  "qna": "marketplace"
 }

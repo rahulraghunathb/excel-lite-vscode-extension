@@ -5,7 +5,7 @@ import {
   state,
   vscode,
 } from "./state"
-import { getColumnLetter } from "../../model"
+import { getColumnLetter, readableTextColor } from "../../model"
 
 export const dom = {
   grid: document.getElementById("grid") as HTMLDivElement,
@@ -136,6 +136,11 @@ export function renderBody() {
       // Colours are hex-validated in the extension host before they get here.
       if (style?.bgColor) css += `background-color:${style.bgColor};`
       if (style?.fontColor) css += `color:${style.fontColor};`
+      else if (style?.bgColor) {
+        // Keep the text legible on a fill the theme knows nothing about.
+        const readable = readableTextColor(style.bgColor)
+        if (readable) css += `color:${readable};`
+      }
 
       const selected = isSelected(viewRow, col) ? " selected" : ""
       const matched = isMatch(viewRow, col)

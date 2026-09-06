@@ -18,6 +18,7 @@ import {
   argbToHex,
   hexToArgb,
   isEmptyStyle,
+  readableTextColor,
   sanitizeHexColor,
   toNumber,
 } from "../model"
@@ -439,5 +440,26 @@ describe("style helpers", () => {
     assert.equal(isEmptyStyle({ bold: true }), false)
     assert.equal(isEmptyStyle({ align: "center" }), false)
     assert.equal(isEmptyStyle({ italic: true }), false)
+  })
+})
+
+describe("fill contrast", () => {
+  test("picks dark text on pale fills and light text on dark fills", () => {
+    // Pale yellow and mint: the dark theme's light foreground is unreadable.
+    assert.equal(readableTextColor("#ffff00"), "#1a1a1a")
+    assert.equal(readableTextColor("#fff2a8"), "#1a1a1a")
+    assert.equal(readableTextColor("#c8e6c9"), "#1a1a1a")
+    assert.equal(readableTextColor("#ffffff"), "#1a1a1a")
+    // Dark fills need light text.
+    assert.equal(readableTextColor("#0e639c"), "#ffffff")
+    assert.equal(readableTextColor("#000000"), "#ffffff")
+    assert.equal(readableTextColor("#c62828"), "#ffffff")
+  })
+
+  test("accepts shorthand hex and rejects anything else", () => {
+    assert.equal(readableTextColor("#fff"), "#1a1a1a")
+    assert.equal(readableTextColor("#000"), "#ffffff")
+    assert.equal(readableTextColor("red"), undefined)
+    assert.equal(readableTextColor('#f"><script>'), undefined)
   })
 })
