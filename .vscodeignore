@@ -10,3 +10,6 @@ tsconfig.json
 *.vsix
 # README images are served from GitHub, not shipped in the package
 media/screenshots/**
+# Local tool state, never part of the extension
+.claude/**
+.cursor/**
