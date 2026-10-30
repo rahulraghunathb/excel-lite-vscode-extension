@@ -5,6 +5,17 @@ All notable changes to Excel Lite are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 2.1.1 — 2026-10-30
+
+### Fixed
+
+- Large sheets stopped scrolling around row 54 and lost column widths and cell
+  formatting. The webview's Content-Security-Policy blocked the inline style
+  attributes used by the virtual-scroll spacer rows. Inline style attributes are
+  now allowed; scripts and style elements stay locked to the nonce.
+  ([#3](https://github.com/rahulraghunathb/excel-lite-vscode-extension/issues/3),
+  [#4](https://github.com/rahulraghunathb/excel-lite-vscode-extension/issues/4))
+
 ## 2.1.0 — 2026-09-06
 
 ### Added

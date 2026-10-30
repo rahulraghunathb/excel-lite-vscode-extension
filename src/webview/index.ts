@@ -38,6 +38,7 @@ export function getHtmlShell(
     default-src 'none';
     img-src ${webview.cspSource} data:;
     style-src ${webview.cspSource} 'nonce-${nonce}';
+    style-src-attr 'unsafe-inline';
     font-src ${webview.cspSource};
     script-src 'nonce-${nonce}';">
 <title>Excel Lite</title>
