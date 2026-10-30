@@ -5,6 +5,23 @@ All notable changes to Excel Lite are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 2.1.2 — 2026-10-30
+
+### Added
+
+- **Sheet shortcuts:** `Ctrl+1` to `Ctrl+9` switch to that sheet, and
+  `Ctrl+PageUp` / `Ctrl+PageDown` move to the previous or next sheet.
+  `Ctrl+Left` and `Ctrl+Right` do the same. They used to move one cell, so use
+  the arrow keys without `Ctrl` to move between cells.
+- **Paste a single value into a selected range:** it fills every selected cell,
+  as in Excel. On a filtered view only the visible cells are filled.
+  ([#2](https://github.com/rahulraghunathb/excel-lite-vscode-extension/issues/2))
+
+### Changed
+
+- Tests now guard pasting into a filtered view, so it keeps writing only to
+  visible rows.
+
 ## 2.1.1 — 2026-10-30
 
 ### Fixed

@@ -933,26 +933,40 @@ export class ExcelPanel {
     const refreshed = this._processed()
 
     const edit = emptyEdit("Paste")
-    for (let r = 0; r < source.length; r++) {
-      const viewRow = startRow + r
+    const written = new Set<string>()
+    const write = (viewRow: number, col: number, text: string) => {
       // Past the end of a filtered or sorted view there is no row to write to,
       // so the paste stops rather than landing somewhere arbitrary.
       const originalRow = refreshed.originalIndices[viewRow]
-      if (originalRow === undefined) break
+      if (originalRow === undefined) return
+      // Overlapping selection ranges must not record the same cell twice.
+      const key = `${originalRow},${col}`
+      if (written.has(key)) return
+      written.add(key)
 
-      for (let c = 0; c < source[r].length; c++) {
-        const col = startCol + c
-        if (col >= this._document.model.headers.length) break
-        const before = this._document.getCell(this._sheetIndex, originalRow, col)
-        const after = coerceInput(source[r][c])
-        if (formatCellEdit(before) === formatCellEdit(after)) continue
-        edit.cells.push({
-          sheetIndex: this._sheetIndex,
-          row: originalRow,
-          col,
-          before,
-          after,
-        })
+      const before = this._document.getCell(this._sheetIndex, originalRow, col)
+      const after = coerceInput(text)
+      if (formatCellEdit(before) === formatCellEdit(after)) return
+      edit.cells.push({
+        sheetIndex: this._sheetIndex,
+        row: originalRow,
+        col,
+        before,
+        after,
+      })
+    }
+
+    if (source.length === 1 && source[0].length === 1) {
+      // A single value fills every selected cell, as in Excel.
+      this._forEachSelectedCell(refreshed.rows, (viewRow, col) =>
+        write(viewRow, col, source[0][0]),
+      )
+    } else {
+      for (let r = 0; r < source.length; r++) {
+        for (let c = 0; c < source[r].length; c++) {
+          if (startCol + c >= this._document.model.headers.length) break
+          write(startRow + r, startCol + c, source[r][c])
+        }
       }
     }
 

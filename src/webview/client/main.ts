@@ -608,6 +608,19 @@ window.addEventListener("resize", () => scheduleWindowFetch())
 
 // ------------------------------------------------------------------- keyboard
 
+/** Switch to the sheet at a tab position. Positions past the last sheet do nothing. */
+function switchSheetAt(index: number) {
+  const tab = dom.sheetTabs.querySelectorAll<HTMLElement>(".sheet-tab")[index]
+  if (tab) vscode.postMessage({ type: "switchSheet", payload: { index: Number(tab.dataset.index) } })
+}
+
+/** Move to the neighbouring sheet, stopping at either end rather than wrapping. */
+function stepSheet(delta: number) {
+  const tabs = [...dom.sheetTabs.querySelectorAll<HTMLElement>(".sheet-tab")]
+  const current = tabs.findIndex((tab) => tab.classList.contains("active"))
+  if (current !== -1) switchSheetAt(current + delta)
+}
+
 document.addEventListener("keydown", (event) => {
   if (editor) return
   const target = elementFrom(event)
@@ -646,6 +659,28 @@ document.addEventListener("keydown", (event) => {
       case "h":
         event.preventDefault()
         openFind()
+        return
+      case "1":
+      case "2":
+      case "3":
+      case "4":
+      case "5":
+      case "6":
+      case "7":
+      case "8":
+      case "9":
+        event.preventDefault()
+        switchSheetAt(Number(event.key) - 1)
+        return
+      case "pageup":
+      case "arrowleft":
+        event.preventDefault()
+        stepSheet(-1)
+        return
+      case "pagedown":
+      case "arrowright":
+        event.preventDefault()
+        stepSheet(1)
         return
       case "home":
         event.preventDefault()
