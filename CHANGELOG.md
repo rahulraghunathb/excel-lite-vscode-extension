@@ -5,6 +5,17 @@ All notable changes to Excel Lite are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 2.1.3 — 2026-11-09
+
+### Fixed
+
+- `Ctrl+V`/`Cmd+V` did nothing in the find and replace boxes, the formula bar
+  and the cell editor. The same was true of other `Ctrl`/`Cmd` shortcuts such
+  as copy, cut, select all and undo. These text boxes stopped every key from
+  reaching VS Code, which is what handles those shortcuts in a webview. They
+  now let `Ctrl`/`Cmd` keys through.
+  ([#5](https://github.com/rahulraghunathb/excel-lite-vscode-extension/issues/5))
+
 ## 2.1.2 — 2026-10-30
 
 ### Added

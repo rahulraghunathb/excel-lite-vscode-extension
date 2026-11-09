@@ -152,7 +152,9 @@ findInput.onkeydown = (event) => {
     event.preventDefault()
     closeFind()
   }
-  event.stopPropagation()
+  // VS Code handles clipboard and undo shortcuts from a window listener, so
+  // those must bubble or Ctrl/Cmd+V does nothing in the find box.
+  if (!event.ctrlKey && !event.metaKey) event.stopPropagation()
 }
 
 replaceInput.onkeydown = (event) => {
@@ -163,7 +165,7 @@ replaceInput.onkeydown = (event) => {
     event.preventDefault()
     closeFind()
   }
-  event.stopPropagation()
+  if (!event.ctrlKey && !event.metaKey) event.stopPropagation()
 }
 
 ;(document.getElementById("findNext") as HTMLButtonElement).onclick = () => step(1)

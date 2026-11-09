@@ -227,7 +227,9 @@ formulaInput.onkeydown = (event) => {
     if (activeCell) formulaInput.value = activeCell.text
     dom.grid.focus()
   }
-  event.stopPropagation()
+  // VS Code handles clipboard and undo shortcuts from a window listener, so
+  // those must bubble or Ctrl/Cmd+V does nothing in a text box.
+  if (!event.ctrlKey && !event.metaKey) event.stopPropagation()
 }
 
 formulaInput.onblur = () => {
@@ -294,7 +296,8 @@ function beginEdit(payload: EditValuePayload) {
       event.preventDefault()
       cancelEdit()
     }
-    event.stopPropagation()
+    // Let Ctrl/Cmd shortcuts reach VS Code, as in the formula bar.
+    if (!event.ctrlKey && !event.metaKey) event.stopPropagation()
   }
 }
 
