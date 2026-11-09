@@ -15,6 +15,16 @@ export const OVERSCAN = 12
 
 export const vscode: VsCodeApi = acquireVsCodeApi()
 
+/**
+ * Is this key one VS Code must see? The webview host handles clipboard, undo
+ * and select-all from a window listener, so text boxes have to let Ctrl/Cmd
+ * keys bubble or those shortcuts do nothing. AltGr reports Ctrl on Windows but
+ * is typing (it gives @, { and the like), so it is not a shortcut.
+ */
+export function isVsCodeShortcut(event: KeyboardEvent): boolean {
+  return (event.ctrlKey || event.metaKey) && !event.getModifierState("AltGraph")
+}
+
 interface PersistedState {
   theme?: "dark" | "light" | "auto"
   columnWidths?: Record<number, number>

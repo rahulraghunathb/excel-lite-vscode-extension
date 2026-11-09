@@ -13,7 +13,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   and the cell editor. The same was true of other `Ctrl`/`Cmd` shortcuts such
   as copy, cut, select all and undo. These text boxes stopped every key from
   reaching VS Code, which is what handles those shortcuts in a webview. They
-  now let `Ctrl`/`Cmd` keys through.
+  now let `Ctrl`/`Cmd` keys through. AltGr still counts as typing, so
+  characters such as `@` and `{` on European keyboards are unaffected.
   ([#5](https://github.com/rahulraghunathb/excel-lite-vscode-extension/issues/5))
 
 ## 2.1.2 — 2026-10-30

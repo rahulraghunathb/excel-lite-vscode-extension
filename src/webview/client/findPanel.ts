@@ -1,4 +1,4 @@
-import { state, vscode } from "./state"
+import { isVsCodeShortcut, state, vscode } from "./state"
 import { dom, refreshSelectionClasses } from "./render"
 import { selectCell, scrollRowIntoView } from "./selection"
 import type { FindResultsPayload, Match } from "./protocol"
@@ -152,9 +152,7 @@ findInput.onkeydown = (event) => {
     event.preventDefault()
     closeFind()
   }
-  // VS Code handles clipboard and undo shortcuts from a window listener, so
-  // those must bubble or Ctrl/Cmd+V does nothing in the find box.
-  if (!event.ctrlKey && !event.metaKey) event.stopPropagation()
+  if (!isVsCodeShortcut(event)) event.stopPropagation()
 }
 
 replaceInput.onkeydown = (event) => {
@@ -165,7 +163,7 @@ replaceInput.onkeydown = (event) => {
     event.preventDefault()
     closeFind()
   }
-  if (!event.ctrlKey && !event.metaKey) event.stopPropagation()
+  if (!isVsCodeShortcut(event)) event.stopPropagation()
 }
 
 ;(document.getElementById("findNext") as HTMLButtonElement).onclick = () => step(1)
